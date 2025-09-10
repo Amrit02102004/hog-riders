@@ -5,24 +5,142 @@ import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
 import morgan from 'morgan';
-import * as dotenv from 'dotenv';
-import { RedisService } from './services/RedisService';
-import { PeerManager } from './services/PeerManager';
-import { FileTracker } from './services/FileTracker';
 import { IPeer, IFileChunk, ITrackerStats, IFileInfo } from './types';
 import { logger } from './utils/logger';
 import { validatePeerRegistration } from './utils/validation';
 
-// Load environment variables from .env file
-dotenv.config();
+
+export class InMemoryPeerManager {
+    private peers: Map<string, IPeer>;
+
+    constructor() {
+        this.peers = new Map();
+    }
+
+    async registerPeer(peer: IPeer): Promise<void> {
+        this.peers.set(peer.id, peer);
+    }
+
+    async unregisterPeer(peerId: string): Promise<void> {
+        this.peers.delete(peerId);
+    }
+
+    async getTotalPeers(): Promise<number> {
+        return this.peers.size;
+    }
+
+    async getActivePeers(): Promise<number> {
+        return [...this.peers.values()].filter(p => p.connected).length;
+    }
+
+    async getAllActivePeers(): Promise<IPeer[]> {
+        return [...this.peers.values()].filter(p => p.connected);
+    }
+
+    async getPeersByIds(ids: string[]): Promise<IPeer[]> {
+        return ids.map(id => this.peers.get(id)).filter((p): p is IPeer => p !== undefined);
+    }
+
+    async cleanupInactivePeers(timeout: number): Promise<number> {
+        const now = Date.now();
+        let removed = 0;
+        for (const [id, peer] of this.peers.entries()) {
+            if (now - peer.lastSeen.getTime() > timeout) {
+                this.peers.delete(id);
+                removed++;
+            }
+        }
+        return removed;
+    }
+}
+
+
+export class InMemoryFileTracker {
+    private files: Map<string, IFileInfo>;
+    private chunks: Map<string, Map<number, Set<string>>>;
+    // fileHash → (chunkIndex → Set(peerId))
+
+    constructor() {
+        this.files = new Map();
+        this.chunks = new Map();
+    }
+
+    async getTotalFiles(): Promise<number> {
+        return this.files.size;
+    }
+
+    async getTotalChunks(): Promise<number> {
+        let count = 0;
+        for (const chunkMap of this.chunks.values()) {
+            count += chunkMap.size;
+        }
+        return count;
+    }
+
+    async getFileChunkMapWithPeers(peerManager: InMemoryPeerManager): Promise<Record<string, IPeer[][]>> {
+        const result: Record<string, IPeer[][]> = {};
+        for (const [fileHash, chunkMap] of this.chunks.entries()) {
+            // Pre-size the array with chunkCount if file info is available
+            const fileInfo = this.files.get(fileHash);
+            const chunkArr: IPeer[][] = fileInfo ? Array.from({ length: fileInfo.chunkCount }, () => []) : [];
+
+            for (const [chunkIndex, peerIds] of chunkMap.entries()) {
+                const peers = await peerManager.getPeersByIds([...peerIds]);
+                chunkArr[chunkIndex] = peers;
+            }
+
+            result[fileHash] = chunkArr;
+        }
+        return result;
+    }
+
+
+
+    async announceChunks(peerId: string, fileInfo: IFileInfo, chunks: IFileChunk[]): Promise<void> {
+        this.files.set(fileInfo.hash, fileInfo);
+
+        if (!this.chunks.has(fileInfo.hash)) {
+            this.chunks.set(fileInfo.hash, new Map());
+        }
+        const chunkMap = this.chunks.get(fileInfo.hash)!;
+
+        for (const chunk of chunks) {
+            if (!chunkMap.has(chunk.chunkIndex)) {
+                chunkMap.set(chunk.chunkIndex, new Set());
+            }
+            chunkMap.get(chunk.chunkIndex)!.add(peerId);
+        }
+    }
+
+    async getPeersForChunk(fileHash: string, chunkIndex: number): Promise<string[]> {
+        const chunkMap = this.chunks.get(fileHash);
+        if (!chunkMap) return [];
+        const peers = chunkMap.get(chunkIndex);
+        return peers ? [...peers] : [];
+    }
+
+    async removePeerChunks(peerId: string): Promise<void> {
+        for (const chunkMap of this.chunks.values()) {
+            for (const peers of chunkMap.values()) {
+                peers.delete(peerId);
+            }
+        }
+    }
+
+    async getAllFiles(): Promise<IFileInfo[]> {
+        return [...this.files.values()];
+    }
+}
+
+
+
 
 class TrackerServer {
     private app: express.Application;
     private httpServer: any;
     private io: SocketServer;
-    private redisService: RedisService;
-    private peerManager: PeerManager;
-    private fileTracker: FileTracker;
+    private peerManager: InMemoryPeerManager;
+    private fileTracker: InMemoryFileTracker;
     private port: number;
 
     constructor() {
@@ -30,16 +148,15 @@ class TrackerServer {
         this.httpServer = createServer(this.app);
         this.io = new SocketServer(this.httpServer, {
             cors: {
-                origin: "*", // Allow all origins for simplicity
+                origin: "*", // Allow all origins
                 methods: ["GET", "POST"]
             },
             transports: ['websocket', 'polling']
         });
 
         this.port = parseInt(process.env.PORT || '3000');
-        this.redisService = new RedisService();
-        this.peerManager = new PeerManager(this.redisService);
-        this.fileTracker = new FileTracker(this.redisService);
+        this.peerManager = new InMemoryPeerManager();
+        this.fileTracker = new InMemoryFileTracker();
 
         this.setupMiddleware();
         this.setupRoutes();
@@ -58,19 +175,11 @@ class TrackerServer {
 
     private setupRoutes(): void {
         this.app.get('/health', async (req, res) => {
-            try {
-                await this.redisService.ping();
-                res.json({
-                    status: 'healthy',
-                    timestamp: new Date().toISOString(),
-                    uptime: process.uptime()
-                });
-            } catch (error) {
-                res.status(503).json({
-                    status: 'unhealthy',
-                    error: 'Redis connection failed'
-                });
-            }
+            res.json({
+                status: 'healthy',
+                timestamp: new Date().toISOString(),
+                uptime: process.uptime()
+            });
         });
 
         this.app.get('/stats', async (req, res) => {
@@ -89,6 +198,8 @@ class TrackerServer {
         });
     }
 
+
+
     private async broadcastPeerList(): Promise<void> {
         try {
             const allPeers = await this.peerManager.getAllActivePeers();
@@ -104,35 +215,19 @@ class TrackerServer {
             logger.info(`🔗 Peer connected: ${socket.id}`);
 
             socket.on('file_list', async () => {
-                console.log("LGIBUWEJLKBGRTWJLINHNLJITR.JNLI;RHBBLIJHRETNHJILTRE")
                 try {
-                    const redisClient = this.redisService.getClient();
-                    const fileKeys: string[] = [];
+                    const files = await this.fileTracker.getAllFiles();
+                    const chunkMap = await this.fileTracker.getFileChunkMapWithPeers(this.peerManager);
 
-                    let cursor = '0';
-                    do {
-                        const [nextCursor, keys] = await redisClient.scan(cursor, 'MATCH', 'fileinfo:*', 'COUNT', '100');
-                        cursor = nextCursor;
-                        fileKeys.push(...keys);
-                    } while (cursor !== '0');
+                    socket.emit('filesList', { files, chunkMap });
 
-                    if (fileKeys.length === 0) {
-                        console.log("I HATE AMRIT")
-                        return socket.emit('filesList', []);
-                    }
-
-                    const filesData = await redisClient.mget(fileKeys);
-                    const files: IFileInfo[] = filesData
-                        .filter((data): data is string => data !== null)
-                        .map((data) => JSON.parse(data));
-                    console.log(files)
-                    socket.emit('filesList', files);
-                    logger.info(`✅ Sent file list (${files.length} files) to peer ${socket.id}`);
+                    logger.info(`✅ Sent file list (${files.length} files) with chunk ownership to peer ${socket.id}`);
                 } catch (error) {
                     logger.error(`Error fetching file list for peer ${socket.id}:`, error);
                     socket.emit('error', { message: 'Failed to retrieve file list' });
                 }
             });
+
 
             socket.on('announce_chunks', async (data: { fileInfo: IFileInfo, chunks: IFileChunk[] }) => {
                 try {
@@ -140,10 +235,8 @@ class TrackerServer {
                     if (!fileInfo || !chunks || chunks.length === 0) {
                         return socket.emit('error', { message: 'Invalid chunk announcement data' });
                     }
-                    // ✅ FIX: Use socket.id to reliably track who has the chunk.
                     await this.fileTracker.announceChunks(socket.id, fileInfo, chunks);
                     socket.broadcast.emit('new_content_available', { fileHash: fileInfo.hash });
-
                 } catch (error) {
                     logger.error(`Error announcing chunks for peer ${socket.id}:`, error);
                     socket.emit('error', { message: 'Failed to announce chunks' });
@@ -154,10 +247,7 @@ class TrackerServer {
                 try {
                     const { fileHash, chunkIndex } = data;
                     const peerIds = await this.fileTracker.getPeersForChunk(fileHash, chunkIndex);
-
-                    // ✅ FIX: Look up the full peer details for each ID.
                     const peersWithChunk = await this.peerManager.getPeersByIds(peerIds);
-
                     socket.emit('peers_for_chunk_response', { fileHash, chunkIndex, peers: peersWithChunk });
                 } catch (error) {
                     logger.error(`Error getting peers for chunk:`, error);
@@ -189,10 +279,8 @@ class TrackerServer {
                 }
             });
 
-
             socket.on('disconnect', async () => {
                 try {
-                    // ✅ FIX: Use the reliable socket.id for all cleanup operations.
                     await this.fileTracker.removePeerChunks(socket.id);
                     await this.peerManager.unregisterPeer(socket.id);
                     logger.info(`🔌 Peer disconnected: ${socket.id}`);
@@ -210,7 +298,6 @@ class TrackerServer {
 
     public async start(): Promise<void> {
         try {
-            await this.redisService.connect();
             this.startCleanupJob();
             this.httpServer.listen(this.port, () => {
                 logger.info(`🚀 Tracker server running on port ${this.port}`);
@@ -240,7 +327,6 @@ class TrackerServer {
         try {
             this.io.close();
             this.httpServer.close();
-            await this.redisService.disconnect();
             logger.info('Server stopped gracefully.');
         } catch (error) {
             logger.error('Error during server shutdown:', error);
