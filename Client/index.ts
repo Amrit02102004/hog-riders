@@ -6,7 +6,20 @@ const client = new Client();
 await client.ensureConnected();
 console.log("Client is ready to use");
 
-await client.requestFilesList();
+import readline from 'node:readline/promises';
+import { stdin as input, stdout as output } from 'node:process';
 
-// Example usage: Upload a file
-// await client.uploadFile('/home/a7x/WebstormProjects/hog-riders/README.md')
+const rl = readline.createInterface({ input, output });
+
+const choice = await rl.question('Enter 1 to list files, 2 to upload a file: ');
+
+if (choice === '1') {
+    await client.requestFilesList();
+} else if (choice === '2') {
+    const filePath = await rl.question('Enter the file path to upload: ');
+    await client.uploadFile(filePath);
+} else {
+    console.log('Invalid choice.');
+}
+
+rl.close();
