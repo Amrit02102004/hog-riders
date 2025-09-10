@@ -103,35 +103,29 @@ class TrackerServer {
         this.io.on('connection', (socket) => {
             logger.info(`🔗 Peer connected: ${socket.id}`);
 
-            // ✨ NEW: Handler for clients requesting the list of available files.
-            socket.on('requestFilesList', async () => {
+            socket.on('file_list', async () => {
+                console.log("LGIBUWEJLKBGRTWJLINHNLJITR.JNLI;RHBBLIJHRETNHJILTRE")
                 try {
                     const redisClient = this.redisService.getClient();
                     const fileKeys: string[] = [];
 
-                    // Use SCAN for IORedis with different implementation pattern
                     let cursor = '0';
                     do {
-                        const [nextCursor, keys] = await redisClient.scan(
-                            cursor,
-                            'MATCH',
-                            'fileinfo:*',
-                            'COUNT',
-                            '100'
-                        );
+                        const [nextCursor, keys] = await redisClient.scan(cursor, 'MATCH', 'fileinfo:*', 'COUNT', '100');
                         cursor = nextCursor;
                         fileKeys.push(...keys);
                     } while (cursor !== '0');
 
                     if (fileKeys.length === 0) {
-                        return socket.emit('filesList', []); // Send empty list if no files
+                        console.log("I HATE AMRIT")
+                        return socket.emit('filesList', []);
                     }
 
                     const filesData = await redisClient.mget(fileKeys);
                     const files: IFileInfo[] = filesData
-                        .filter((data): data is string => data !== null) // Filter out potential nulls
+                        .filter((data): data is string => data !== null)
                         .map((data) => JSON.parse(data));
-
+                    console.log(files)
                     socket.emit('filesList', files);
                     logger.info(`✅ Sent file list (${files.length} files) to peer ${socket.id}`);
                 } catch (error) {
@@ -142,12 +136,11 @@ class TrackerServer {
 
             socket.on('announce_chunks', async (data: { fileInfo: IFileInfo, chunks: IFileChunk[] }) => {
                 try {
-                    // You should add Joi validation here for production code
                     const { fileInfo, chunks } = data;
                     if (!fileInfo || !chunks || chunks.length === 0) {
                         return socket.emit('error', { message: 'Invalid chunk announcement data' });
                     }
-
+                    // ✅ FIX: Use socket.id to reliably track who has the chunk.
                     await this.fileTracker.announceChunks(socket.id, fileInfo, chunks);
                     socket.broadcast.emit('new_content_available', { fileHash: fileInfo.hash });
 
@@ -161,7 +154,11 @@ class TrackerServer {
                 try {
                     const { fileHash, chunkIndex } = data;
                     const peerIds = await this.fileTracker.getPeersForChunk(fileHash, chunkIndex);
-                    socket.emit('peers_for_chunk_response', { fileHash, chunkIndex, peerIds });
+
+                    // ✅ FIX: Look up the full peer details for each ID.
+                    const peersWithChunk = await this.peerManager.getPeersByIds(peerIds);
+
+                    socket.emit('peers_for_chunk_response', { fileHash, chunkIndex, peers: peersWithChunk });
                 } catch (error) {
                     logger.error(`Error getting peers for chunk:`, error);
                     socket.emit('error', { message: 'Failed to get peers for chunk' });
@@ -192,19 +189,12 @@ class TrackerServer {
                 }
             });
 
-            socket.on('heartbeat', async () => {
-                try {
-                    await this.peerManager.updateLastSeen(socket.id);
-                    socket.emit('heartbeat_ack');
-                } catch (error) {
-                    logger.warn(`Failed to update heartbeat for ${socket.id}:`, error);
-                }
-            });
 
             socket.on('disconnect', async () => {
                 try {
-                    await this.peerManager.unregisterPeer(socket.id);
+                    // ✅ FIX: Use the reliable socket.id for all cleanup operations.
                     await this.fileTracker.removePeerChunks(socket.id);
+                    await this.peerManager.unregisterPeer(socket.id);
                     logger.info(`🔌 Peer disconnected: ${socket.id}`);
                     await this.broadcastPeerList();
                 } catch (error) {
@@ -232,12 +222,14 @@ class TrackerServer {
     }
 
     private startCleanupJob(): void {
-        const cleanupInterval = 5 * 60 * 1000; // 5 minutes
+        const cleanupInterval = 5 * 60 * 1000;
         setInterval(async () => {
             logger.info('Running cleanup job for inactive peers...');
             try {
-                await this.peerManager.cleanupInactivePeers(cleanupInterval);
-                await this.broadcastPeerList();
+                const inactivePeerCount = await this.peerManager.cleanupInactivePeers(cleanupInterval);
+                if (inactivePeerCount > 0) {
+                    await this.broadcastPeerList();
+                }
             } catch (error) {
                 logger.error('Error during cleanup job:', error);
             }

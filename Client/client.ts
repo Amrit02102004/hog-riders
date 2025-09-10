@@ -1,4 +1,3 @@
-// client/src/client.ts
 import Seeder from "./seeder.js";
 import Leecher from "./leecher.js";
 import FileMetadata from "./Types/FileMetadata.js";
@@ -37,6 +36,10 @@ class Client {
         } else {
             console.error(`Could not request part ${partIndex}. Failed to get metadata for file: ${absoluteFilePath}`);
         }
+    }
+
+    public async requestFilesList(): Promise<void> {
+        await this.leecher.requestFilesList();
     }
 
 }

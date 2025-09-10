@@ -1,5 +1,6 @@
 // client/src/leecher.ts
 import { io, Socket } from "socket.io-client";
+import { IPeer } from "./Types/PeerTypes"; // ✨ FIX: Import the IPeer interface
 
 class Leecher {
     private trackerURL: string;
@@ -29,10 +30,21 @@ class Leecher {
                 reject(err);
             });
 
-            // Listen for the correct server response event.
-            this.trackerSocket.on("peers_for_chunk_response", (data) => {
-                console.log(`🔎 Received peers for chunk ${data.chunkIndex} of file hash ${data.fileHash.substring(0,10)}...:`, data.peerIds);
+            // ✨ FIX: Updated handler to process the array of IPeer objects.
+            this.trackerSocket.on("peers_for_chunk_response", (data: { fileHash: string; chunkIndex: number; peers: IPeer[] }) => {
+                console.log(`🔎 Received peer connection details for chunk ${data.chunkIndex} of file ${data.fileHash.substring(0,10)}...:`);
+                if (data.peers && data.peers.length > 0) {
+                    data.peers.forEach(peer => {
+                        console.log(`   - Peer ${peer.id} available at ${peer.address}:${peer.port}`);
+                    });
+                } else {
+                    console.log(`   - No peers found for this chunk.`);
+                }
             });
+
+            this.trackerSocket.on("filesList", (data) => {
+                console.log("📄 Received files list from tracker:", data);
+            })
         });
     }
 
@@ -60,13 +72,10 @@ class Leecher {
         await this.waitForConnection();
     }
 
-    // NOTE: The methods below (requestFilesList, requestFile, etc.) will not work
-    // because the server does not have corresponding event handlers.
-    // They are left here to show the original structure but are not functional
-    // in this integrated version.
 
     public async requestFilesList(): Promise<void> {
-        console.warn("`requestFilesList` is not supported by the server.");
+        await this.waitForConnection();
+        this.trackerSocket.emit("file_list");
     }
 
     public async requestFile(fileName: string): Promise<void> {
