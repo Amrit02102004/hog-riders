@@ -1,5 +1,5 @@
-import winston from 'winston';
-import path from 'path';
+import * as winston from 'winston';
+import * as path from 'path';
 
 // Determine the logs directory
 const logDir = process.env.LOG_DIR || path.join(__dirname, '../../logs');
