@@ -1,53 +1,18 @@
+# docker-compose.yml
+
 version: '3.8'
 
 services:
   redis:
-    image: redis:7-alpine
+    image: "redis:7-alpine"
     container_name: p2p-tracker-redis
     ports:
+      # Exposes Redis on port 6379 to your host machine
       - "6379:6379"
     volumes:
-      - redis_data:/data
-    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-  redis-commander:
-    image: rediscommander/redis-commander:latest
-    container_name: p2p-tracker-redis-gui
-    hostname: redis-commander
-    ports:
-      - "8081:8081"
-    environment:
-      - REDIS_HOSTS=local:redis:6379
-    depends_on:
-      - redis
-    restart: unless-stopped
-
-  tracker-server:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: p2p-tracker-server
-    ports:
-      - "3000:3000"
-      - "3001:3001"  # Socket.IO port
-    environment:
-      - NODE_ENV=production
-      - REDIS_URL=redis://redis:6379
-      - PORT=3000
-      - SOCKET_PORT=3001
-    depends_on:
-      redis:
-        condition: service_healthy
-    restart: unless-stopped
-    volumes:
-      - ./logs:/app/logs
+      # Persists Redis data on your host machine
+      - redis-data:/data
+    restart: always
 
 volumes:
-  redis_data:
-    driver: local
+  redis-data:
