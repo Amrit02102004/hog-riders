@@ -18,7 +18,12 @@ if (choice === '1') {
 } else if (choice === '2') {
     const filePath = await rl.question('Enter the file path to upload: ');
     await client.uploadFile(filePath);
-} else {
+
+}else if (choice === '3') {
+    const fileName = await rl.question('Enter the file name to search: ');
+    await client.requestFileInfoByName(fileName);
+}
+else {
     console.log('Invalid choice.');
 }
 

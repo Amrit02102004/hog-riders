@@ -1,128 +1,45 @@
-import { RedisService } from './RedisService';
-import { IPeer } from '../types';
-import { logger } from '../utils/logger';
+import {IFileInfo, IPeer} from "../types";
 
-// Define a type for the raw data returned by Redis HGETALL
-type RedisPeerData = Record<string, string>;
+export class InMemoryPeerManager {
+    private peers: Map<string, IPeer>;
 
-const PEER_KEY_PREFIX = 'peer:';
-const ACTIVE_PEERS_SET = 'active_peers';
-
-export class PeerManager {
-    private redisClient: RedisService;
-
-    constructor(redisService: RedisService) {
-        this.redisClient = redisService;
+    constructor() {
+        this.peers = new Map();
     }
 
-    public async registerPeer(peer: IPeer): Promise<void> {
-        const peerKey = `${PEER_KEY_PREFIX}${peer.id}`;
-        const redis = this.redisClient.getClient();
-
-        const pipeline = redis.pipeline();
-        pipeline.hset(peerKey, {
-            id: peer.id,
-            address: peer.address,
-            port: peer.port.toString(),
-            lastSeen: peer.lastSeen.toISOString(),
-            connected: 'true', // Store connected status
-        });
-        pipeline.sadd(ACTIVE_PEERS_SET, peer.id);
-
-        await pipeline.exec();
+    async registerPeer(peer: IPeer): Promise<void> {
+        this.peers.set(peer.id, peer);
     }
 
-    public async unregisterPeer(peerId: string): Promise<void> {
-        const redis = this.redisClient.getClient();
-        const pipeline = redis.pipeline();
-
-        pipeline.srem(ACTIVE_PEERS_SET, peerId);
-        pipeline.del(`${PEER_KEY_PREFIX}${peerId}`);
-
-        await pipeline.exec();
+    async unregisterPeer(peerId: string): Promise<void> {
+        this.peers.delete(peerId);
     }
 
-    /**
-     * ✨ NEW: Retrieves full peer details for a given list of peer IDs.
-     * This is used by the server to provide connectable addresses to leechers.
-     * @param peerIds - An array of peer IDs (socket.id) to look up.
-     * @returns A promise that resolves to an array of IPeer objects.
-     */
-    public async getPeersByIds(peerIds: string[]): Promise<IPeer[]> {
-        if (!peerIds || peerIds.length === 0) {
-            return [];
-        }
-
-        const redis = this.redisClient.getClient();
-        const pipeline = redis.pipeline();
-        peerIds.forEach(id => pipeline.hgetall(`${PEER_KEY_PREFIX}${id}`));
-        const results = await pipeline.exec();
-
-        if (!results) {
-            return [];
-        }
-
-        const peers: IPeer[] = results
-            .map(([, data]) => {
-                const peerData = data as RedisPeerData;
-                if (typeof peerData !== 'object' || peerData === null || !peerData.id) {
-                    return null;
-                }
-
-                return {
-                    id: peerData.id,
-                    address: peerData.address,
-                    port: parseInt(peerData.port, 10),
-                    lastSeen: new Date(peerData.lastSeen),
-                    connected: peerData.connected === 'true',
-                };
-            })
-            .filter((p): p is IPeer => p !== null);
-
-        return peers;
+    async getTotalPeers(): Promise<number> {
+        return this.peers.size;
     }
 
-    public async getAllActivePeers(): Promise<IPeer[]> {
-        const redis = this.redisClient.getClient();
-        const peerIds = await redis.smembers(ACTIVE_PEERS_SET);
-        return this.getPeersByIds(peerIds);
+    async getActivePeers(): Promise<number> {
+        return [...this.peers.values()].filter(p => p.connected).length;
     }
 
-    public async updateLastSeen(peerId: string): Promise<void> {
-        const peerKey = `${PEER_KEY_PREFIX}${peerId}`;
-        await this.redisClient.getClient().hset(peerKey, 'lastSeen', new Date().toISOString());
+    async getAllActivePeers(): Promise<IPeer[]> {
+        return [...this.peers.values()].filter(p => p.connected);
     }
 
-    /**
-     * Finds and removes peers that haven't sent a heartbeat recently.
-     * 💡 FIX: Returns the number of peers that were cleaned up.
-     */
-    public async cleanupInactivePeers(thresholdMs: number): Promise<number> {
+    async getPeersByIds(ids: string[]): Promise<IPeer[]> {
+        return ids.map(id => this.peers.get(id)).filter((p): p is IPeer => p !== undefined);
+    }
+
+    async cleanupInactivePeers(timeout: number): Promise<number> {
         const now = Date.now();
-        const allPeers = await this.getAllActivePeers();
-        let inactiveCount = 0;
-
-        const cleanupPromises: Promise<void>[] = [];
-
-        for (const peer of allPeers) {
-            const lastSeenTime = peer.lastSeen.getTime();
-            if (now - lastSeenTime > thresholdMs) {
-                logger.info(`Cleaning up inactive peer: ${peer.id}`);
-                cleanupPromises.push(this.unregisterPeer(peer.id));
-                inactiveCount++;
+        let removed = 0;
+        for (const [id, peer] of this.peers.entries()) {
+            if (now - peer.lastSeen.getTime() > timeout) {
+                this.peers.delete(id);
+                removed++;
             }
         }
-
-        await Promise.all(cleanupPromises);
-        return inactiveCount;
-    }
-
-    public async getActivePeers(): Promise<number> {
-        return this.redisClient.getClient().scard(ACTIVE_PEERS_SET);
-    }
-
-    public async getTotalPeers(): Promise<number> {
-        // This could be a separate metric if you want to track historical peers
-        return this.getActivePeers();
+        return removed;
     }
 }

@@ -42,6 +42,23 @@ class Client {
         await this.leecher.requestFilesList();
     }
 
+    // public async requestFileInfo(fileHash: string): Promise<void> {
+    //     await this.leecher.requestFileInfo(fileHash);
+    // }
+
+    public async requestFileInfoByHash(fileHash: string): Promise<void> {
+        await this.leecher.requestFileInfo({ fileHash });
+    }
+
+    public async requestFileInfoByName(fileName: string): Promise<void> {
+        await this.leecher.requestFileInfo({ fileName });
+    }
+
+    public async requestFileInfoViaListLookup(fileName: string): Promise<void> {
+        await this.leecher.requestFileInfoViaListLookup(fileName);
+    }
+
+
 }
 
 export default Client;
