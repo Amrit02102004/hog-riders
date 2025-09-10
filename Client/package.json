@@ -20,7 +20,8 @@
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start:seeder": "node --loader ts-node/esm seeder.ts"
+    "start:seeder": "node --loader ts-node/esm seeder.ts",
+    "start" : "node --loader ts-node/esm index.ts"
   },
   "devDependencies": {
     "@types/express": "^5.0.3",
