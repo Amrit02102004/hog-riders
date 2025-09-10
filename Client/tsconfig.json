@@ -11,7 +11,7 @@
     "allowJs": true,
     "resolveJsonModule": true
   },
-  "include": ["Client/**/*"],
+  "include": ["./**/*"],
   "exclude": ["node_modules", "dist"]
 }
 
