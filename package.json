@@ -1,0 +1,36 @@
+{
+  "name": "hog-riders",
+  "version": "1.0.0",
+  "description": "p2p",
+  "homepage": "https://github.com/Amrit02102004/hog-riders#readme",
+  "bugs": {
+    "url": "https://github.com/Amrit02102004/hog-riders/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Amrit02102004/hog-riders.git"
+  },
+  "license": "ISC",
+  "author": "",
+  "type": "module",
+  "main": "index.js",
+  "ts-node": {
+    "esm": true,
+    "experimentalSpecifierResolution": "node"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start:seeder": "node --loader ts-node/esm Client/seeder.ts"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.3",
+    "@types/node": "^24.3.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.2"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1"
+  }
+}
