@@ -24,6 +24,10 @@ class Seeder {
         this.trackerSocket.on("error", (err) => {
             console.error("Error with tracker connection:", err);
         });
+
+        this.trackerSocket.on("received", () => {
+            console.log("Tracker received data:");
+        })
     }
 
     public parseMetadata(absoluteFilePath: string): FileMetadata | null {
