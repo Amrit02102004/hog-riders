@@ -23,8 +23,14 @@
     "start:seeder": "node --loader ts-node/esm Client/seeder.ts"
   },
   "devDependencies": {
+    "@types/express": "^5.0.3",
     "@types/node": "^24.3.1",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.2"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1"
   }
 }
