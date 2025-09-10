@@ -1,4 +1,4 @@
-import Joi from 'joi';
+import * as Joi from 'joi';
 
 // Schema for validating a single file chunk during announcement
 const fileChunkSchema = Joi.object({
