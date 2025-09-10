@@ -77,4 +77,4 @@ class Seeder {
 }
 
 const s: Seeder = new Seeder("");
-console.log(s.parseMetadata("/home/a7x/WebstormProjects/hog-riders/README.md"));
+console.log(s.parseMetadata("../README.md"));
