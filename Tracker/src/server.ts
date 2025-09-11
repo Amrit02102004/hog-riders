@@ -89,6 +89,20 @@ class TrackerServer {
                 res.status(500).json({ error: 'Failed to retrieve statistics' });
             }
         });
+
+        // --- ADDED ROUTE START ---
+        this.app.post('/dev/clear-redis', async (req, res) => {
+            try {
+                const redis = RedisManager.getInstance();
+                await redis.flushdb();
+                logger.info('✅ Redis database cleared via /dev/clear-redis endpoint.');
+                res.status(200).json({ message: 'Redis database cleared successfully.' });
+            } catch (error) {
+                logger.error('❌ Error clearing Redis database:', error);
+                res.status(500).json({ error: 'Failed to clear Redis database.' });
+            }
+        });
+        // --- ADDED ROUTE END ---
     }
 
     private getAvailablePort(): number | null {
