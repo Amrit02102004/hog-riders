@@ -15,7 +15,11 @@ export class RedisManager {
                 RedisManager.instance = new Redis({
                     host: process.env.REDIS_HOST || 'localhost',
                     port: parseInt(process.env.REDIS_PORT || '6379'),
-                    maxRetriesPerRequest: null, // Continuously try to reconnect
+                    // --- ADD THESE TWO LINES ---
+                    username: process.env.REDIS_USERNAME, // Or 'default' if it's always the same
+                    password: process.env.REDIS_PASSWORD,
+                    // ---------------------------
+                    maxRetriesPerRequest: null, // Keep trying to reconnect
                 });
 
                 RedisManager.instance.on('connect', () => {
