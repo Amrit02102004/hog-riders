@@ -7,6 +7,7 @@ import { downloadChunkFromPeer } from './peerConnection.js';
 import FileMetadata from "./Types/FileMetadata.js";
 import { IFileInfo, IFileChunk } from "./Types/ServerTypes.js";
 import { IPeer } from "./Types/PeerTypes.js";
+import { networkInterfaces } from 'os';
 
 const MB: number = 1024 * 1024;
 
@@ -22,13 +23,25 @@ function shuffleArray<T>(array: T[]): T[] {
     return array;
 }
 
+function getLocalIpAddress(): string {
+    const nets = networkInterfaces();
+    for (const name of Object.keys(nets)) {
+        for (const net of nets[name]!) {
+            if (net.family === 'IPv4' && !net.internal) {
+                return net.address;
+            }
+        }
+    }
+    return '127.0.0.1';
+}
+
 export interface IFileDetails {
     fileInfo: IFileInfo;
     chunkOwnership: IPeer[][];
 }
 
 class Client {
-    private trackerURL: string = 'http://localhost:3000';
+    private trackerURL: string = 'https://hog-riders.onrender.com/';
     private trackerSocket!: Socket;
     private peerServer!: PeerServer;
     private peerPort!: number;
@@ -59,7 +72,8 @@ class Client {
                     this.peerPort = response.port;
                     this.peerServer = new PeerServer(this.peerPort);
 
-                    this.trackerSocket.emit("register_peer", { address: '127.0.0.1', port: this.peerPort });
+                    const ipAddress = getLocalIpAddress();
+                    this.trackerSocket.emit("register_peer", { address: ipAddress, port: this.peerPort });
                 });
             });
 
@@ -213,18 +227,14 @@ class Client {
             console.log("[Downloader] All chunks downloaded. Assembling file...");
             const finalBuffer = Buffer.concat(downloadedChunks as Buffer[]);
 
-            // --- MODIFICATION START ---
-            // Use the custom save directory if provided, otherwise default to a 'Downloads' folder in the CWD.
             const finalDownloadsDir = customSaveDir || path.join(process.cwd(), 'Downloads');
 
-            // Ensure the target directory exists, creating it recursively if needed.
             if (!fs.existsSync(finalDownloadsDir)) {
                 fs.mkdirSync(finalDownloadsDir, { recursive: true });
             }
 
             const savePath = path.join(finalDownloadsDir, fileName);
-            // --- MODIFICATION END ---
-            
+
             fs.writeFileSync(savePath, finalBuffer.slice(0, fileInfo.size));
             console.log(`✅ File saved successfully to ${savePath}`);
 
@@ -233,7 +243,6 @@ class Client {
 
         } catch (error) {
             console.error(`❌ Download failed: ${(error as Error).message}`);
-            // Re-throw the error so the API endpoint's catch block can handle it
             throw error;
         }
     }
