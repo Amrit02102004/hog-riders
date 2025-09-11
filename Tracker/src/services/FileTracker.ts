@@ -29,9 +29,6 @@ export class InMemoryFileTracker {
     }
 
     async announceChunks(peerId: string, fileInfo: IFileInfo, chunks: IFileChunk[]): Promise<void> {
-        console.log(`📢 DEBUG: announceChunks called for peerId: ${peerId}, fileHash: ${fileInfo.hash}`);
-        console.log(`📢 DEBUG: chunks received:`, chunks);
-
         this.files.set(fileInfo.hash, fileInfo);
 
         if (!this.chunks.has(fileInfo.hash)) {
@@ -40,52 +37,30 @@ export class InMemoryFileTracker {
         const chunkMap = this.chunks.get(fileInfo.hash)!;
 
         for (const chunk of chunks) {
-            console.log(`📢 DEBUG: Processing chunk ${chunk.chunkIndex} for peer ${peerId}`);
-
             if (!chunkMap.has(chunk.chunkIndex)) {
                 chunkMap.set(chunk.chunkIndex, new Set());
             }
             chunkMap.get(chunk.chunkIndex)!.add(peerId);
-
-            console.log(`📢 DEBUG: Chunk ${chunk.chunkIndex} now has peers:`, [...chunkMap.get(chunk.chunkIndex)!]);
         }
-
-        // Debug: show the complete state after announcement
-        console.log(`📢 DEBUG: Complete chunk map for ${fileInfo.hash}:`,
-            Array.from(chunkMap.entries()).map(([idx, peers]) => [idx, [...peers]]));
     }
 
     async getFileInfo(fileHash: string, peerManager: InMemoryPeerManager): Promise<{ fileInfo: IFileInfo; chunkOwnership: IPeer[][] } | null> {
-        console.log(`🔍 DEBUG: getFileInfo called for fileHash: ${fileHash}`);
-
         const fileInfo = this.files.get(fileHash);
         if (!fileInfo) {
-            console.log(`❌ DEBUG: No fileInfo found for hash: ${fileHash}`);
             return null;
         }
 
-        console.log(`✅ DEBUG: Found fileInfo:`, fileInfo);
-
-        // Get chunk ownership data
         const chunkMap = this.chunks.get(fileHash);
-        console.log(`🔍 DEBUG: ChunkMap for ${fileHash}:`, chunkMap ?
-            Array.from(chunkMap.entries()).map(([idx, peers]) => [idx, [...peers]]) : 'undefined');
-
         const chunkOwnership: IPeer[][] = Array.from({ length: fileInfo.chunkCount }, () => []);
 
         if (chunkMap) {
             for (const [chunkIndex, peerIds] of chunkMap.entries()) {
-                console.log(`🔍 DEBUG: Processing chunk ${chunkIndex}, peerIds:`, [...peerIds]);
-
                 if (chunkIndex < fileInfo.chunkCount) {
                     const peers = await peerManager.getPeersByIds([...peerIds]);
-                    console.log(`🔍 DEBUG: Found peers for chunk ${chunkIndex}:`, peers);
                     chunkOwnership[chunkIndex] = peers;
                 }
             }
         }
-
-        console.log(`✅ DEBUG: Final chunkOwnership:`, chunkOwnership);
 
         return {
             fileInfo,
@@ -96,7 +71,6 @@ export class InMemoryFileTracker {
     async getFileChunkMapWithPeers(peerManager: InMemoryPeerManager): Promise<Record<string, IPeer[][]>> {
         const result: Record<string, IPeer[][]> = {};
         for (const [fileHash, chunkMap] of this.chunks.entries()) {
-            // Pre-size the array with chunkCount if file info is available
             const fileInfo = this.files.get(fileHash);
             const chunkArr: IPeer[][] = fileInfo ? Array.from({ length: fileInfo.chunkCount }, () => []) : [];
 

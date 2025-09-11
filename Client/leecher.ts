@@ -1,13 +1,7 @@
 // client/src/leecher.ts
 import { io, Socket } from "socket.io-client";
 import { IPeer } from "./Types/PeerTypes";
-
-interface FileListItem {
-    name: string;
-    hash: string;
-    size?: number;
-    chunks?: number;
-}
+import { IFileInfo } from "./Types/ServerTypes";
 
 class Leecher {
     private trackerURL: string;
@@ -21,15 +15,12 @@ class Leecher {
 
         this.connectionPromise = new Promise<void>((resolve, reject) => {
             this.trackerSocket.on("connect", () => {
-                console.log("✅ Leecher connected to tracker at", trackerURL);
-
-                this.trackerSocket.emit("register_peer")
+                this.trackerSocket.emit("register_peer");
                 this.isConnected = true;
                 resolve();
             });
 
             this.trackerSocket.on("disconnect", () => {
-                console.log("🔌 Leecher disconnected from tracker at", trackerURL);
                 this.isConnected = false;
             });
 
@@ -50,23 +41,30 @@ class Leecher {
                 }
             });
 
-            this.trackerSocket.on("filesList", (data: { files: FileListItem[] }) => {
-                console.log("📄 Received files list from tracker:", data);
+            this.trackerSocket.on("filesList", (data: { files: IFileInfo[] }) => {
+                console.log("\n--- Files Available on the Network ---");
+                if (data.files && data.files.length > 0) {
+                    data.files.forEach(file => {
+                        console.log(`- Name: ${file.name}, Size: ${file.size} bytes, Chunks: ${file.chunkCount}`);
+                    });
+                } else {
+                    console.log("No files found on the network.");
+                }
+                console.log("------------------------------------");
             });
 
             this.trackerSocket.on("file_info_response", (data) => {
-                data.chunkOwnership.forEach((peers: any, index: any) => {
-                    console.log(`Chunk ${index} peers:`, peers);
-                });
-            });
-
-            // Optional: response for hash resolution if server implemented.
-            this.trackerSocket.on("resolve_file_hash_response", (data: { found: boolean; fileHash?: string }) => {
-                if (!data.found) {
-                    console.warn("⚠️ File name not found during hash resolution.");
-                } else {
-                    console.log("🔐 Resolved file hash:", data.fileHash);
+                if (!data || !data.fileInfo) {
+                    console.error("Received invalid file info response from tracker.");
+                    return;
                 }
+                console.log(`\n--- Chunk Info for: ${data.fileInfo.name} ---`);
+                console.log(`Hash: ${data.fileInfo.hash.substring(0, 15)}...`);
+                data.chunkOwnership.forEach((peers: IPeer[], index: number) => {
+                    const peerIds = peers.map(p => p.id.substring(0, 5) + '...').join(', ') || 'None';
+                    console.log(`- Chunk ${index}: Held by peers -> [${peerIds}]`);
+                });
+                console.log("-----------------------------------------");
             });
         });
     }
@@ -84,7 +82,6 @@ class Leecher {
     public async requestPeersForChunk(fileHash: string, chunkIndex: number): Promise<void> {
         await this.waitForConnection();
         this.trackerSocket.emit("request_peers_for_chunk", { fileHash, chunkIndex });
-        console.log(`🙏 Requesting peers for chunk ${chunkIndex} of file hash ${fileHash.substring(0,10)}...`);
     }
 
     public async requestFilesList(): Promise<void> {
@@ -92,9 +89,7 @@ class Leecher {
         this.trackerSocket.emit("file_list");
     }
 
-    // accepts only fileName.
     public async requestFileInfo(fileName?: string ): Promise<void> {
-        console.log("test")
         await this.waitForConnection();
         try{
             this.trackerSocket.emit("request_file_info", fileName );
@@ -102,13 +97,6 @@ class Leecher {
         catch(err) {
             console.error("Error requesting file info:", err);
         }
-    }
-
-
-    public async computeSHA256(file: File): Promise<string> {
-        const buf = await file.arrayBuffer();
-        const hashBuf = await crypto.subtle.digest("SHA-256", buf);
-        return Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, "0")).join("");
     }
 }
 

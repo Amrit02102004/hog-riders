@@ -22,19 +22,16 @@ class Seeder {
 
         this.connectionPromise = new Promise<void>((resolve, reject) => {
             this.trackerSocket.on("connect", () => {
-                console.log("✅ Seeder connected to tracker at", trackerURL);
                 this.isConnected = true;
                 this.trackerSocket.emit("register_peer")
                 resolve();
             });
 
             this.trackerSocket.on("disconnect", () => {
-                console.log("🔌 Seeder disconnected from tracker at", trackerURL);
                 this.isConnected = false;
             });
 
             this.trackerSocket.on("error", (err) => {
-                console.error("❌ Error with seeder tracker connection:", err);
                 this.isConnected = false;
                 reject(err);
             });
@@ -54,7 +51,6 @@ class Seeder {
             const fileName = path.basename(absoluteFilePath);
             const fileSize = stats.size;
 
-            // Generate a consistent hash. For a real app, hash the file content.
             const hashSource = `${fileName}-${fileSize}`;
             const fileHash = crypto.createHash('sha256').update(hashSource).digest('hex');
 
@@ -72,10 +68,6 @@ class Seeder {
         }
     }
 
-    /**
-     * Announces available file chunks to the tracker.
-     * This method is the integration point with the server's `announce_chunks` handler.
-     */
     private async announceChunks(metadata: FileMetadata, parts: number[]): Promise<void> {
         await this.waitForConnection();
 
@@ -91,7 +83,6 @@ class Seeder {
             chunkIndex: partIndex,
         }));
 
-        console.log(`📢 Announcing ${chunks.length} chunks for file: ${fileInfo.name}`);
         this.trackerSocket.emit("announce_chunks", { fileInfo, chunks });
     }
 
@@ -101,7 +92,6 @@ class Seeder {
         const existingParts = this.partsMap.get(absoluteFilePath) || [];
 
         if (existingParts.includes(partIndex)) {
-            console.log(`Part ${partIndex} already exists for file: ${metadata.name}`);
             return;
         }
 
@@ -123,7 +113,6 @@ class Seeder {
         const parts = Array.from({ length: metadata.numParts }, (_, i) => i);
         this.partsMap.set(absoluteFilePath, parts);
         await this.announceChunks(metadata, parts);
-        console.log(`✅ Announced complete file: ${metadata.name} with ${metadata.numParts} parts`);
     }
 
     public async ensureConnected(): Promise<void> {
