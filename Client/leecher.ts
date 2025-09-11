@@ -1,13 +1,28 @@
-// client/src/leecher.ts
+// amrit02102004/hog-riders/hog-riders-frontend/Client/leecher.ts
 import { io, Socket } from "socket.io-client";
 import { IPeer } from "./Types/PeerTypes";
 import { IFileInfo } from "./Types/ServerTypes";
+import { networkInterfaces } from 'os'; // <-- Import os module
 
 // This interface combines the file info with the chunk ownership details
 export interface IFileDetails {
     fileInfo: IFileInfo;
     chunkOwnership: IPeer[][];
 }
+
+// Function to get local IP
+function getLocalIpAddress(): string {
+    const nets = networkInterfaces();
+    for (const name of Object.keys(nets)) {
+        for (const net of nets[name]!) {
+            if (net.family === 'IPv4' && !net.internal) {
+                return net.address;
+            }
+        }
+    }
+    return '127.0.0.1';
+}
+
 
 class Leecher {
     private trackerURL: string;
@@ -27,8 +42,9 @@ class Leecher {
 
         this.connectionPromise = new Promise<void>((resolve, reject) => {
             this.trackerSocket.on("connect", () => {
+                const ipAddress = getLocalIpAddress();
                 // Register with the port it's listening on for peer connections
-                this.trackerSocket.emit("register_peer", { address: '127.0.0.1', port: this.peerPort });
+                this.trackerSocket.emit("register_peer", { address: ipAddress, port: this.peerPort }); // <-- Use dynamic IP
                 this.isConnected = true;
                 resolve();
             });

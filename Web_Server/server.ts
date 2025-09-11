@@ -4,13 +4,14 @@ import { promises as fs } from 'fs';
 import { fileURLToPath } from 'url';
 import process from 'node:process';
 import Client from '../Client/client.js';
+import cors from 'cors';
 
-// --- Basic Server and Path Setup ---
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Middleware to parse JSON bodies
 app.use(express.json());
+
+app.use(cors());
 
 // Helper to get __dirname in ES modules
 const __filename = fileURLToPath(import.meta.url);

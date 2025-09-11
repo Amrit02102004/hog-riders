@@ -5,8 +5,22 @@ import { io, Socket } from "socket.io-client";
 import * as crypto from "crypto";
 import FileMetadata from "./Types/FileMetadata.js";
 import { IFileInfo, IFileChunk } from "./Types/ServerTypes.js";
+import { networkInterfaces } from 'os'; // <-- Import os module
 
 const MB : number = 1024 * 1024;
+
+function getLocalIpAddress(): string {
+    const nets = networkInterfaces();
+    for (const name of Object.keys(nets)) {
+        for (const net of nets[name]!) {
+            if (net.family === 'IPv4' && !net.internal) {
+                return net.address;
+            }
+        }
+    }
+    return '127.0.0.1';
+}
+
 
 class Seeder {
     private trackerURL: string;
@@ -16,6 +30,7 @@ class Seeder {
     public fileMap: Map<string, string>; // Maps fileHash to absoluteFilePath
     private isConnected: boolean = false;
     private connectionPromise: Promise<void>;
+
 
     constructor(trackerURL: string, peerPort: number) {
         this.trackerURL = trackerURL;
@@ -29,7 +44,8 @@ class Seeder {
             this.trackerSocket.on("connect", () => {
                 this.isConnected = true;
                 // Register with the port it's listening on for peer connections
-                this.trackerSocket.emit("register_peer", { address: '127.0.0.1', port: this.peerPort });
+                const ipAddress = getLocalIpAddress();
+                this.trackerSocket.emit("register_peer", { address: ipAddress, port: this.peerPort });
                 resolve();
             });
 
