@@ -41,7 +41,7 @@ export interface IFileDetails {
 }
 
 class Client {
-    private trackerURL: string = 'https://hog-riders.onrender.com';
+    private trackerURL: string = 'http://10.104.187.69:3000';
     private trackerSocket!: Socket;
     private peerServer!: PeerServer;
     private peerPort!: number;
@@ -230,18 +230,21 @@ class Client {
         });
     }
 
-    public async downloadFile(fileName: string, customSaveDir?: string): Promise<void> {
+    // ... (imports and other class methods remain the same)
+
+// Add the onProgress callback to the downloadFile method
+    public async downloadFile(fileName: string, customSaveDir?: string, onProgress?: (progress: number) => void): Promise<void> {
         try {
             console.log(`[Downloader] Requesting info for ${fileName}...`);
             const fileDetails = await this.requestFileInfo(fileName);
             const { fileInfo, chunkOwnership } = fileDetails;
 
             console.log(`[Downloader] Starting download for ${fileName}. Total chunks: ${fileInfo.chunkCount}`);
-            console.log('[Downloader] Chunk ownership:', chunkOwnership);
 
             const downloadedChunks: (Buffer | null)[] = new Array(fileInfo.chunkCount).fill(null);
             const chunkQueue = Array.from({ length: fileInfo.chunkCount }, (_, i) => i);
-            const concurrency = 5; // Limit to 5 concurrent downloads
+            let downloadedCount = 0;
+            const concurrency = 5;
 
             const downloadWorker = async () => {
                 while (chunkQueue.length > 0) {
@@ -250,8 +253,7 @@ class Client {
 
                     const peersForChunk = chunkOwnership[chunkIndex];
                     if (!peersForChunk || peersForChunk.length === 0) {
-                        console.error(`[Downloader] No peers found for chunk ${chunkIndex}. Download aborted.`);
-                        throw new Error(`No peers found for chunk ${chunkIndex}. Download aborted.`);
+                        throw new Error(`No peers found for chunk ${chunkIndex}.`);
                     }
                     const randomizedPeers = shuffleArray([...peersForChunk]);
 
@@ -261,15 +263,20 @@ class Client {
 
             const tryDownloadChunk = async (chunkIndex: number, availablePeers: IPeer[]): Promise<void> => {
                 if (availablePeers.length === 0) {
-                    console.error(`[Downloader] No more peers to try for chunk ${chunkIndex}`);
                     throw new Error(`All peers failed to provide chunk ${chunkIndex}.`);
                 }
                 const peerToTry = availablePeers[0];
-                console.log(`[Downloader] Attempting to download chunk ${chunkIndex} from peer ${peerToTry.id}`);
                 try {
                     const chunkData = await downloadChunkFromPeer(peerToTry, fileInfo.hash, chunkIndex);
-                    await sleep(1000); // Increased delay between chunks
+                    await sleep(500); // Small delay
                     downloadedChunks[chunkIndex] = chunkData;
+                    downloadedCount++;
+                    // *** THIS IS THE NEW PART ***
+                    if (onProgress) {
+                        const progress = Math.round((downloadedCount / fileInfo.chunkCount) * 100);
+                        onProgress(progress);
+                    }
+                    // **************************
                     console.log(`[Downloader] Peer ${peerToTry.id.substring(0, 5)}... DELIVERED chunk ${chunkIndex}`);
                     this.announceSingleChunk(fileInfo, chunkIndex);
                 } catch (error) {
@@ -281,39 +288,34 @@ class Client {
             const downloadPromises = Array.from({ length: concurrency }, () => downloadWorker());
             await Promise.all(downloadPromises);
 
-
-            const downloadedCount = downloadedChunks.filter(c => c !== null).length;
-            if (downloadedCount !== fileInfo.chunkCount) {
-                throw new Error(`Failed to download all chunks. Got ${downloadedCount}/${fileInfo.chunkCount}.`);
+            // ... (rest of the function remains the same)
+            const downloadedCountCheck = downloadedChunks.filter(c => c !== null).length;
+            if (downloadedCountCheck !== fileInfo.chunkCount) {
+                throw new Error(`Failed to download all chunks. Got ${downloadedCountCheck}/${fileInfo.chunkCount}.`);
             }
 
             console.log("[Downloader] All chunks downloaded. Assembling file...");
             const finalBuffer = Buffer.concat(downloadedChunks as Buffer[]);
-
             const finalDownloadsDir = customSaveDir || path.join(process.cwd(), 'Downloads');
-
             if (!fs.existsSync(finalDownloadsDir)) {
                 fs.mkdirSync(finalDownloadsDir, { recursive: true });
             }
-
             const savePath = path.join(finalDownloadsDir, fileName);
-
             fs.writeFileSync(savePath, finalBuffer.slice(0, fileInfo.size));
             console.log(`✅ File saved successfully to ${savePath}`);
 
-            console.log(`[Seeder] Now attempting to seed the newly downloaded file: ${fileName}`);
-            try {
-                await this.uploadFile(savePath);
-                console.log(`[Seeder] Successfully announced and started seeding: ${fileName}`);
-            } catch (e) {
-                console.error(`[Seeder] FAILED to start seeding the new file:`, e);
-            }
+            console.log(`[Seeder] Now seeding the newly downloaded file: ${fileName}`);
+            await this.uploadFile(savePath);
 
         } catch (error) {
             console.error(`❌ Download failed: ${(error as Error).message}`);
+            // If there's a progress callback, send -1 to indicate failure
+            if (onProgress) onProgress(-1);
             throw error;
         }
     }
+// ... (rest of the class)
+
 }
 
 export default Client;

@@ -7,18 +7,26 @@ interface FileInfo {
     chunkCount: number;
 }
 
+// Add fetchFiles to the props interface
 interface FileListProps {
     files: FileInfo[];
     handleDownload: (fileName: string) => void;
     isLoading: boolean;
+    fetchFiles: () => void;
 }
 
-const FileList: React.FC<FileListProps> = ({ files, handleDownload, isLoading }) => {
+const FileList: React.FC<FileListProps> = ({ files, handleDownload, isLoading, fetchFiles }) => {
     return (
         <div className="card">
-            <h2>Files on the Network</h2>
+            <div className="card-header">
+                <h2>Files on the Network</h2>
+                {/* Use the new fetchFiles prop on this button */}
+                <button onClick={fetchFiles} disabled={isLoading} className="refresh-btn">
+                    {isLoading ? 'Refreshing...' : 'Refresh'}
+                </button>
+            </div>
             {files.length === 0 ? (
-                <p>No files found. Click "Refresh List" to check again.</p>
+                <p>No files found. Click "Refresh" to check again.</p>
             ) : (
                 <table>
                     <thead>
