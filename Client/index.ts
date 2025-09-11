@@ -7,12 +7,12 @@ const rl = readline.createInterface({ input, output });
 
 async function main() {
     console.log("Initializing client and requesting port from tracker...");
-    const client = new Client();
+    const name :string = await rl.question("Enter your name: ");
+    const client = new Client(name);
     await client.initialize();
 
     console.log("✅ Client is ready.");
 
-    const testFilePath = path.join(process.cwd(), 'TestFiles', 'test.txt');
 
     while (true) {
         console.log("\n--- Hog Riders P2P Menu ---");
