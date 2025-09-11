@@ -1,5 +1,5 @@
-import {IFileChunk, IFileInfo, IPeer} from "../types";
-import {InMemoryPeerManager} from "./PeerManager";
+import { IFileChunk, IFileInfo, IPeer } from "../types";
+import { IPeerManager } from "./IPeerManager";
 
 export class InMemoryFileTracker {
     private files: Map<string, IFileInfo>;
@@ -44,7 +44,7 @@ export class InMemoryFileTracker {
         }
     }
 
-    async getFileInfo(fileHash: string, peerManager: InMemoryPeerManager): Promise<{ fileInfo: IFileInfo; chunkOwnership: IPeer[][] } | null> {
+    async getFileInfo(fileHash: string, peerManager: IPeerManager): Promise<{ fileInfo: IFileInfo; chunkOwnership: IPeer[][] } | null> {
         const fileInfo = this.files.get(fileHash);
         if (!fileInfo) {
             return null;
@@ -68,7 +68,7 @@ export class InMemoryFileTracker {
         };
     }
 
-    async getFileChunkMapWithPeers(peerManager: InMemoryPeerManager): Promise<Record<string, IPeer[][]>> {
+    async getFileChunkMapWithPeers(peerManager: IPeerManager): Promise<Record<string, IPeer[][]>> {
         const result: Record<string, IPeer[][]> = {};
         for (const [fileHash, chunkMap] of this.chunks.entries()) {
             const fileInfo = this.files.get(fileHash);

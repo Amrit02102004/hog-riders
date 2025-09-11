@@ -1,3 +1,6 @@
+import * as dotenv from 'dotenv';
+dotenv.config(); // Load .env file
+
 import express from 'express';
 import { createServer } from 'http';
 import { Server as SocketServer } from 'socket.io';
@@ -8,15 +11,17 @@ import morgan from 'morgan';
 import { IPeer, IFileChunk, ITrackerStats, IFileInfo } from './types';
 import { logger } from './utils/logger';
 import { validatePeerRegistration } from './utils/validation';
-import {InMemoryPeerManager} from "./services/PeerManager";
-import {InMemoryFileTracker} from "./services/FileTracker";
+import { InMemoryFileTracker } from "./services/FileTracker";
+import { IPeerManager } from "./services/IPeerManager";
+import { RedisPeerManager } from "./services/RedisPeerManager";
+import { RedisManager } from "./services/RedisManager";
 
 
 class TrackerServer {
     private app: express.Application;
     private httpServer: any;
     private io: SocketServer;
-    private peerManager: InMemoryPeerManager;
+    private peerManager: IPeerManager;
     private fileTracker: InMemoryFileTracker;
     private port: number;
 
@@ -32,7 +37,7 @@ class TrackerServer {
         });
 
         this.port = parseInt(process.env.PORT || '3000');
-        this.peerManager = new InMemoryPeerManager();
+        this.peerManager = new RedisPeerManager();
         this.fileTracker = new InMemoryFileTracker();
 
         this.setupMiddleware();
@@ -217,6 +222,7 @@ class TrackerServer {
             try {
                 const inactivePeerCount = await this.peerManager.cleanupInactivePeers(cleanupInterval);
                 if (inactivePeerCount > 0) {
+                    logger.info(`🧹 Cleaned up ${inactivePeerCount} inactive peers.`);
                     await this.broadcastPeerList();
                 }
             } catch (error) {
@@ -229,6 +235,7 @@ class TrackerServer {
         try {
             this.io.close();
             this.httpServer.close();
+            await RedisManager.disconnect();
             logger.info('Server stopped gracefully.');
         } catch (error) {
             logger.error('Error during server shutdown:', error);
