@@ -41,7 +41,7 @@ export interface IFileDetails {
 }
 
 class Client {
-    private trackerURL: string = 'https://hog-riders.onrender.com';
+    private trackerURL: string = 'http://10.104.187.10:3000';
     private trackerSocket!: Socket;
     private peerServer!: PeerServer;
     private peerPort!: number;
