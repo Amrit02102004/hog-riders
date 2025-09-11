@@ -204,9 +204,25 @@ class Client {
             console.log(`[Downloader] Starting download for ${fileName}. Total chunks: ${fileInfo.chunkCount}`);
             console.log('[Downloader] Chunk ownership:', chunkOwnership);
 
-
             const downloadedChunks: (Buffer | null)[] = new Array(fileInfo.chunkCount).fill(null);
-            const downloadPromises: Promise<void>[] = [];
+            const chunkQueue = Array.from({ length: fileInfo.chunkCount }, (_, i) => i);
+            const concurrency = 5; // Limit to 5 concurrent downloads
+
+            const downloadWorker = async () => {
+                while (chunkQueue.length > 0) {
+                    const chunkIndex = chunkQueue.shift();
+                    if (chunkIndex === undefined) continue;
+
+                    const peersForChunk = chunkOwnership[chunkIndex];
+                    if (!peersForChunk || peersForChunk.length === 0) {
+                        console.error(`[Downloader] No peers found for chunk ${chunkIndex}. Download aborted.`);
+                        throw new Error(`No peers found for chunk ${chunkIndex}. Download aborted.`);
+                    }
+                    const randomizedPeers = shuffleArray([...peersForChunk]);
+
+                    await tryDownloadChunk(chunkIndex, randomizedPeers);
+                }
+            };
 
             const tryDownloadChunk = async (chunkIndex: number, availablePeers: IPeer[]): Promise<void> => {
                 if (availablePeers.length === 0) {
@@ -217,7 +233,7 @@ class Client {
                 console.log(`[Downloader] Attempting to download chunk ${chunkIndex} from peer ${peerToTry.id}`);
                 try {
                     const chunkData = await downloadChunkFromPeer(peerToTry, fileInfo.hash, chunkIndex);
-                    await sleep(500);
+                    await sleep(1000); // Increased delay between chunks
                     downloadedChunks[chunkIndex] = chunkData;
                     console.log(`[Downloader] Peer ${peerToTry.id.substring(0, 5)}... DELIVERED chunk ${chunkIndex}`);
                     this.announceSingleChunk(fileInfo, chunkIndex);
@@ -227,17 +243,9 @@ class Client {
                 }
             };
 
-            for (let i = 0; i < fileInfo.chunkCount; i++) {
-                const peersForChunk = chunkOwnership[i];
-                if (!peersForChunk || peersForChunk.length === 0) {
-                    console.error(`[Downloader] No peers found for chunk ${i}. Download aborted.`);
-                    throw new Error(`No peers found for chunk ${i}. Download aborted.`);
-                }
-                const randomizedPeers = shuffleArray([...peersForChunk]);
-                downloadPromises.push(tryDownloadChunk(i, randomizedPeers));
-            }
-
+            const downloadPromises = Array.from({ length: concurrency }, () => downloadWorker());
             await Promise.all(downloadPromises);
+
 
             const downloadedCount = downloadedChunks.filter(c => c !== null).length;
             if (downloadedCount !== fileInfo.chunkCount) {

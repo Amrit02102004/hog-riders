@@ -18,7 +18,6 @@ export class PeerServer {
         this.handleConnections();
     }
 
-    // This method allows the main client to tell the server which files it is seeding
     public addSeededFile(fileHash: string, filePath: string): void {
         console.log(`[PeerServer] Now seeding file ${filePath} with hash ${fileHash}`);
         this.seededFiles.set(fileHash, filePath);
@@ -37,20 +36,25 @@ export class PeerServer {
                     return callback({ error: "File not found or not seeded." });
                 }
 
-                try {
-                    const fileDescriptor = fs.openSync(filePath, 'r');
-                    const buffer = Buffer.alloc(CHUNK_SIZE);
-                    const startPosition = chunkIndex * CHUNK_SIZE;
+                const buffer = Buffer.alloc(CHUNK_SIZE);
+                const startPosition = chunkIndex * CHUNK_SIZE;
 
-                    fs.readSync(fileDescriptor, buffer, 0, CHUNK_SIZE, startPosition);
-                    fs.closeSync(fileDescriptor);
+                fs.open(filePath, 'r', (err, fd) => {
+                    if (err) {
+                        console.error(`[PeerServer] Error opening file ${filePath}:`, err);
+                        return callback({ error: "Failed to open file." });
+                    }
 
-                    console.log(`[PeerServer] Sending chunk ${chunkIndex} of file ${fileHash}`);
-                    callback({ data: buffer });
-                } catch (error) {
-                    console.error(`[PeerServer] Error reading chunk ${chunkIndex} of file ${fileHash}:`, error);
-                    callback({ error: "Failed to read file chunk." });
-                }
+                    fs.read(fd, buffer, 0, CHUNK_SIZE, startPosition, (err, bytesRead, readBuffer) => {
+                        fs.close(fd, () => {});
+                        if (err) {
+                            console.error(`[PeerServer] Error reading chunk ${chunkIndex} of file ${fileHash}:`, err);
+                            return callback({ error: "Failed to read file chunk." });
+                        }
+                        console.log(`[PeerServer] Sending chunk ${chunkIndex} of file ${fileHash}`);
+                        callback({ data: readBuffer.slice(0, bytesRead) });
+                    });
+                });
             });
         });
     }
