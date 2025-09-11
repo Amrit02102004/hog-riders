@@ -1,6 +1,6 @@
 // Client/peerConnection.ts
 import { io, Socket } from "socket.io-client";
-import { IPeer } from "./Types/PeerTypes";
+import { IPeer } from "./Types/PeerTypes.js";
 
 export function downloadChunkFromPeer(peer: IPeer, fileHash: string, chunkIndex: number): Promise<Buffer> {
     return new Promise((resolve, reject) => {
