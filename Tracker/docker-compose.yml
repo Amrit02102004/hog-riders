@@ -1,18 +1,34 @@
-# docker-compose.yml
-
 version: '3.8'
 
 services:
+  # Redis Service
   redis:
-    image: "redis:7-alpine"
-    container_name: p2p-tracker-redis
+    image: redis:7-alpine
+    container_name: p2p_redis
     ports:
-      # Exposes Redis on port 6379 to your host machine
       - "6379:6379"
     volumes:
-      # Persists Redis data on your host machine
-      - redis-data:/data
-    restart: always
+      - redis_data:/data
+    command: redis-server --save 60 1 --loglevel warning
+
+  # Application Service
+  app:
+    build: .
+    container_name: p2p_tracker
+    ports:
+      - "3000:3000"
+    depends_on:
+      - redis
+    # Pass environment variables from the .env file
+    env_file:
+      - .env
+    volumes:
+      # Mounts local code into the container for live-reloading
+      - .:/app
+      # Prevents local node_modules from overwriting the container's
+      - /app/node_modules
+    # The command is defined in the Dockerfile (npm run dev)
 
 volumes:
-  redis-data:
+  redis_data:
+    driver: local
