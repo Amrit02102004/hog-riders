@@ -14,16 +14,13 @@ function sleep(ms: number) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// --- NEW: Helper function to randomize peer selection ---
 function shuffleArray<T>(array: T[]): T[] {
-    // Fisher-Yates shuffle algorithm for randomizing the peer list
     for (let i = array.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [array[i], array[j]] = [array[j], array[i]];
     }
     return array;
 }
-// ----------------------------------------------------
 
 export interface IFileDetails {
     fileInfo: IFileInfo;
@@ -93,9 +90,7 @@ class Client {
 
         this.trackerSocket.on("file_info_response", (data: IFileDetails) => {
             if (!data || !data.fileInfo) return;
-
             this.fileDetailsCache.set(data.fileInfo.hash, data);
-
             if (this.fileInfoPromises.has(data.fileInfo.name)) {
                 this.fileInfoPromises.get(data.fileInfo.name)?.resolve(data);
                 this.fileInfoPromises.delete(data.fileInfo.name);
@@ -104,12 +99,10 @@ class Client {
 
         this.trackerSocket.on('chunk_ownership_update', (data: { fileHash: string, chunkIndex: number, peer: IPeer }) => {
             const { fileHash, chunkIndex, peer } = data;
-
             const details = this.fileDetailsCache.get(fileHash);
             if (details) {
                 const ownership = details.chunkOwnership;
                 const peerExists = ownership[chunkIndex]?.some(p => p.id === peer.id);
-
                 if (ownership[chunkIndex] && !peerExists) {
                     ownership[chunkIndex].push(peer);
                     console.log(`\n[Live Update] Peer ${peer.id.substring(0,5)}... now has chunk ${chunkIndex} of file ${details.fileInfo.name}`);
@@ -129,14 +122,7 @@ class Client {
             const fileSize = stats.size;
             const hashSource = `${fileName}-${fileSize}`;
             const fileHash = crypto.createHash('sha256').update(hashSource).digest('hex');
-
-            return {
-                hash: fileHash,
-                name: fileName,
-                size: fileSize,
-                extension: path.extname(absoluteFilePath),
-                numParts: Math.ceil(fileSize / MB),
-            };
+            return { hash: fileHash, name: fileName, size: fileSize, extension: path.extname(absoluteFilePath), numParts: Math.ceil(fileSize / MB) };
         } catch (error) {
             console.error("Error parsing file metadata:", error);
             return null;
@@ -146,51 +132,27 @@ class Client {
     public async uploadFile(absoluteFilePath: string): Promise<void> {
         const metadata = this.parseMetadata(absoluteFilePath);
         if (!metadata) return;
-
         this.fileMap.set(metadata.hash, absoluteFilePath);
         this.peerServer.addSeededFile(metadata.hash, absoluteFilePath);
-
-        const fileInfo: IFileInfo = {
-            hash: metadata.hash,
-            name: metadata.name,
-            size: metadata.size,
-            chunkCount: metadata.numParts,
-        };
-        const chunks: IFileChunk[] = Array.from({ length: metadata.numParts }, (_, i) => ({
-            fileHash: metadata.hash,
-            chunkIndex: i,
-        }));
-
+        const fileInfo: IFileInfo = { hash: metadata.hash, name: metadata.name, size: metadata.size, chunkCount: metadata.numParts };
+        const chunks: IFileChunk[] = Array.from({ length: metadata.numParts }, (_, i) => ({ fileHash: metadata.hash, chunkIndex: i }));
         this.trackerSocket.emit("announce_chunks", { fileInfo, chunks });
     }
 
     private announceSingleChunk(fileInfo: IFileInfo, chunkIndex: number): void {
-        const chunk: IFileChunk = {
-            fileHash: fileInfo.hash,
-            chunkIndex: chunkIndex,
-        };
+        const chunk: IFileChunk = { fileHash: fileInfo.hash, chunkIndex: chunkIndex };
         this.trackerSocket.emit("announce_chunks", { fileInfo, chunks: [chunk] });
     }
 
     public requestFilesList(): Promise<IFileInfo[]> {
         return new Promise((resolve, reject) => {
-            // Set a timeout to prevent the request from hanging indefinitely
             const timeout = setTimeout(() => {
                 reject(new Error("Request for file list timed out after 10 seconds."));
             }, 10000);
-
-            // Use .once() for a one-time listener for this specific request
             this.trackerSocket.once("filesList", (data: { files: IFileInfo[] }) => {
-                clearTimeout(timeout); // Clear the timeout since we received a response
-                if (data && data.files) {
-                    resolve(data.files);
-                } else {
-                    // Resolve with an empty array if the response is malformed
-                    resolve([]); 
-                }
+                clearTimeout(timeout);
+                resolve(data?.files || []);
             });
-
-            // Emit the event to the tracker to ask for the list
             this.trackerSocket.emit("file_list");
         });
     }
@@ -208,7 +170,7 @@ class Client {
         });
     }
 
-    public async downloadFile(fileName: string): Promise<void> {
+    public async downloadFile(fileName: string, customSaveDir?: string): Promise<void> {
         try {
             console.log(`[Downloader] Requesting info for ${fileName}...`);
             const fileDetails = await this.requestFileInfo(fileName);
@@ -220,13 +182,11 @@ class Client {
             const downloadPromises: Promise<void>[] = [];
 
             const tryDownloadChunk = async (chunkIndex: number, availablePeers: IPeer[]): Promise<void> => {
-                if (availablePeers.length === 0) {
-                    throw new Error(`All peers failed to provide chunk ${chunkIndex}.`);
-                }
+                if (availablePeers.length === 0) throw new Error(`All peers failed to provide chunk ${chunkIndex}.`);
                 const peerToTry = availablePeers[0];
                 try {
                     const chunkData = await downloadChunkFromPeer(peerToTry, fileInfo.hash, chunkIndex);
-                    await sleep(500); // Artificial delay to observe parallel downloads
+                    await sleep(500);
                     downloadedChunks[chunkIndex] = chunkData;
                     console.log(`[Downloader] Peer ${peerToTry.id.substring(0, 5)}... DELIVERED chunk ${chunkIndex}`);
                     this.announceSingleChunk(fileInfo, chunkIndex);
@@ -236,17 +196,12 @@ class Client {
                 }
             };
 
-            // --- MAIN CHANGE: Randomize peer selection for each chunk ---
             for (let i = 0; i < fileInfo.chunkCount; i++) {
                 const peersForChunk = chunkOwnership[i];
-                if (!peersForChunk || peersForChunk.length === 0) {
-                    throw new Error(`No peers found for chunk ${i}. Download aborted.`);
-                }
-                // Shuffle the list of peers for this chunk to randomize the first attempt
+                if (!peersForChunk || peersForChunk.length === 0) throw new Error(`No peers found for chunk ${i}. Download aborted.`);
                 const randomizedPeers = shuffleArray([...peersForChunk]);
                 downloadPromises.push(tryDownloadChunk(i, randomizedPeers));
             }
-            // -----------------------------------------------------------
 
             await Promise.all(downloadPromises);
 
@@ -258,10 +213,18 @@ class Client {
             console.log("[Downloader] All chunks downloaded. Assembling file...");
             const finalBuffer = Buffer.concat(downloadedChunks as Buffer[]);
 
-            const downloadsDir = path.join(process.cwd(), 'Downloads');
-            if (!fs.existsSync(downloadsDir)) fs.mkdirSync(downloadsDir);
+            // --- MODIFICATION START ---
+            // Use the custom save directory if provided, otherwise default to a 'Downloads' folder in the CWD.
+            const finalDownloadsDir = customSaveDir || path.join(process.cwd(), 'Downloads');
 
-            const savePath = path.join(downloadsDir,fileName);
+            // Ensure the target directory exists, creating it recursively if needed.
+            if (!fs.existsSync(finalDownloadsDir)) {
+                fs.mkdirSync(finalDownloadsDir, { recursive: true });
+            }
+
+            const savePath = path.join(finalDownloadsDir, fileName);
+            // --- MODIFICATION END ---
+            
             fs.writeFileSync(savePath, finalBuffer.slice(0, fileInfo.size));
             console.log(`✅ File saved successfully to ${savePath}`);
 
@@ -270,6 +233,8 @@ class Client {
 
         } catch (error) {
             console.error(`❌ Download failed: ${(error as Error).message}`);
+            // Re-throw the error so the API endpoint's catch block can handle it
+            throw error;
         }
     }
 }

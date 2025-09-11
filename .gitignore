@@ -142,3 +142,4 @@ Tracker/*.js
 /TestFiles/
 testFiles/
 Web_Server/Downloads
+Client/ClientDownloads
