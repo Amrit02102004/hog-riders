@@ -90,6 +90,7 @@ class Leecher {
 
     // Updated: now accepts either fileHash or fileName.
     public async requestFileInfo(opts: { fileHash?: string; fileName?: string }): Promise<void> {
+        console.log("test")
         await this.waitForConnection();
         if (!opts.fileHash && !opts.fileName) {
             console.error("❌ requestFileInfo requires fileHash or fileName.");

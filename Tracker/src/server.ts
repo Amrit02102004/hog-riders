@@ -108,11 +108,12 @@ class TrackerServer {
             socket.on("request_file_info", async (data: { fileHash?: string; fileName?: string }) => {
                 try {
                     let { fileHash, fileName } = data || {};
-
+                    console.log("🔍 Received request_file_info:", { fileHash, fileName }); // Add this
+            
                     if (!fileHash && !fileName) {
                         return socket.emit('error', { message: 'Provide fileHash or fileName' });
                     }
-
+            
                     if (!fileHash && fileName) {
                         const fileByName = await this.fileTracker.findFileByName(fileName);
                         if (!fileByName) {
@@ -120,14 +121,20 @@ class TrackerServer {
                         }
                         fileHash = fileByName.hash;
                     }
-
+            
+                    console.log("🔍 Looking for fileHash:", fileHash); // Add this
                     const fileInfo = await this.fileTracker.getFileInfo(fileHash!, this.peerManager);
+                    console.log("📄 FileInfo result:", fileInfo); // Add this
+                    
                     if (!fileInfo) {
+                        console.log("❌ FileInfo is null/undefined"); // Add this
                         return socket.emit('error', { message: 'File not found' });
                     }
-
+            
+                    console.log("✅ Sending file_info_response"); // Add this
                     socket.emit('file_info_response', { fileInfo });
                 } catch (error) {
+                    console.error("❌ Error in request_file_info handler:", error); // Add this
                     logger.error(`Error fetching file info for peer ${socket.id}:`, error);
                     socket.emit('error', { message: 'Failed to retrieve file info' });
                 }
