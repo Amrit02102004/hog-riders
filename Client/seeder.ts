@@ -10,20 +10,24 @@ const MB : number = 1024 * 1024;
 
 class Seeder {
     private trackerURL: string;
+    private peerPort: number;
     private partSize: number = MB; // 1 MB per chunk
     private trackerSocket: Socket;
-    private partsMap: Map<string, number[]> = new Map(); // Maps absoluteFilePath to array of part indices
+    public fileMap: Map<string, string>; // Maps fileHash to absoluteFilePath
     private isConnected: boolean = false;
     private connectionPromise: Promise<void>;
 
-    constructor(trackerURL: string) {
+    constructor(trackerURL: string, peerPort: number) {
         this.trackerURL = trackerURL;
+        this.peerPort = peerPort;
         this.trackerSocket = io(trackerURL);
+        this.fileMap = new Map();
 
         this.connectionPromise = new Promise<void>((resolve, reject) => {
             this.trackerSocket.on("connect", () => {
                 this.isConnected = true;
-                this.trackerSocket.emit("register_peer")
+                // Register with the port it's listening on for peer connections
+                this.trackerSocket.emit("register_peer", { address: '127.0.0.1', port: this.peerPort });
                 resolve();
             });
 
@@ -86,21 +90,6 @@ class Seeder {
         this.trackerSocket.emit("announce_chunks", { fileInfo, chunks });
     }
 
-    public async addPart(absoluteFilePath: string, metadata: FileMetadata, partIndex: number): Promise<void> {
-        await this.waitForConnection();
-
-        const existingParts = this.partsMap.get(absoluteFilePath) || [];
-
-        if (existingParts.includes(partIndex)) {
-            return;
-        }
-
-        const updatedParts = [...existingParts, partIndex].sort((a, b) => a - b);
-        this.partsMap.set(absoluteFilePath, updatedParts);
-
-        await this.announceChunks(metadata, updatedParts);
-    }
-
     public async uploadFile(absoluteFilePath: string): Promise<void> {
         await this.waitForConnection();
 
@@ -110,15 +99,16 @@ class Seeder {
             return;
         }
 
+        // Store the file path for serving chunks later
+        this.fileMap.set(metadata.hash, absoluteFilePath);
+
         const parts = Array.from({ length: metadata.numParts }, (_, i) => i);
-        this.partsMap.set(absoluteFilePath, parts);
         await this.announceChunks(metadata, parts);
     }
 
     public async ensureConnected(): Promise<void> {
         await this.waitForConnection();
     }
-
 }
 
 export default Seeder;

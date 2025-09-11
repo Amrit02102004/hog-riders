@@ -3,19 +3,32 @@ import { io, Socket } from "socket.io-client";
 import { IPeer } from "./Types/PeerTypes";
 import { IFileInfo } from "./Types/ServerTypes";
 
+// This interface combines the file info with the chunk ownership details
+export interface IFileDetails {
+    fileInfo: IFileInfo;
+    chunkOwnership: IPeer[][];
+}
+
 class Leecher {
     private trackerURL: string;
+    private peerPort: number;
     private trackerSocket: Socket;
     private isConnected = false;
     private connectionPromise: Promise<void>;
+    private fileInfoPromises: Map<string, { resolve: (value: IFileDetails) => void, reject: (reason?: any) => void }>;
 
-    constructor(trackerURL: string) {
+
+    constructor(trackerURL: string, peerPort: number) {
         this.trackerURL = trackerURL;
+        this.peerPort = peerPort;
         this.trackerSocket = io(trackerURL);
+        this.isConnected = false;
+        this.fileInfoPromises = new Map();
 
         this.connectionPromise = new Promise<void>((resolve, reject) => {
             this.trackerSocket.on("connect", () => {
-                this.trackerSocket.emit("register_peer");
+                // Register with the port it's listening on for peer connections
+                this.trackerSocket.emit("register_peer", { address: '127.0.0.1', port: this.peerPort });
                 this.isConnected = true;
                 resolve();
             });
@@ -30,17 +43,6 @@ class Leecher {
                 reject(err);
             });
 
-            this.trackerSocket.on("peers_for_chunk_response", (data: { fileHash: string; chunkIndex: number; peers: IPeer[] }) => {
-                console.log(`🔎 Received peer connection details for chunk ${data.chunkIndex} of file ${data.fileHash.substring(0,10)}...:`);
-                if (data.peers && data.peers.length > 0) {
-                    data.peers.forEach(peer => {
-                        console.log(`   - Peer ${peer.id} available at ${peer.address}:${peer.port}`);
-                    });
-                } else {
-                    console.log("   - No peers found for this chunk.");
-                }
-            });
-
             this.trackerSocket.on("filesList", (data: { files: IFileInfo[] }) => {
                 console.log("\n--- Files Available on the Network ---");
                 if (data.files && data.files.length > 0) {
@@ -53,18 +55,20 @@ class Leecher {
                 console.log("------------------------------------");
             });
 
-            this.trackerSocket.on("file_info_response", (data) => {
+            this.trackerSocket.on("file_info_response", (data: IFileDetails) => {
                 if (!data || !data.fileInfo) {
                     console.error("Received invalid file info response from tracker.");
+                    if(this.fileInfoPromises.has(data.fileInfo.name)) {
+                        this.fileInfoPromises.get(data.fileInfo.name)?.reject("Invalid data");
+                    }
                     return;
                 }
-                console.log(`\n--- Chunk Info for: ${data.fileInfo.name} ---`);
-                console.log(`Hash: ${data.fileInfo.hash.substring(0, 15)}...`);
-                data.chunkOwnership.forEach((peers: IPeer[], index: number) => {
-                    const peerIds = peers.map(p => p.id.substring(0, 5) + '...').join(', ') || 'None';
-                    console.log(`- Chunk ${index}: Held by peers -> [${peerIds}]`);
-                });
-                console.log("-----------------------------------------");
+
+                // Resolve the promise for the corresponding file request
+                if (this.fileInfoPromises.has(data.fileInfo.name)) {
+                    this.fileInfoPromises.get(data.fileInfo.name)?.resolve(data);
+                    this.fileInfoPromises.delete(data.fileInfo.name);
+                }
             });
         });
     }
@@ -79,24 +83,23 @@ class Leecher {
         await this.waitForConnection();
     }
 
-    public async requestPeersForChunk(fileHash: string, chunkIndex: number): Promise<void> {
-        await this.waitForConnection();
-        this.trackerSocket.emit("request_peers_for_chunk", { fileHash, chunkIndex });
-    }
-
     public async requestFilesList(): Promise<void> {
         await this.waitForConnection();
         this.trackerSocket.emit("file_list");
     }
 
-    public async requestFileInfo(fileName?: string ): Promise<void> {
+    public async requestFileInfo(fileName: string): Promise<IFileDetails> {
         await this.waitForConnection();
-        try{
-            this.trackerSocket.emit("request_file_info", fileName );
-        }
-        catch(err) {
-            console.error("Error requesting file info:", err);
-        }
+        return new Promise((resolve, reject) => {
+            this.fileInfoPromises.set(fileName, { resolve, reject });
+            this.trackerSocket.emit("request_file_info", fileName);
+            setTimeout(() => {
+                if(this.fileInfoPromises.has(fileName)) {
+                    reject(new Error(`Request for file info "${fileName}" timed out.`));
+                    this.fileInfoPromises.delete(fileName);
+                }
+            }, 10000); // 10 second timeout
+        });
     }
 }
 
