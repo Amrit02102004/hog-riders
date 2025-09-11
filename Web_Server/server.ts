@@ -92,17 +92,23 @@ app.get('/files', async (req: Request, res: Response) => {
  * @api {get} /download/:fileName
  * @description Downloads a specified file from the P2P network to the server's local "Downloads" directory.
  */
-app.get('/download/:fileName', async (req: Request, res: Response) => {
-    const { fileName } = req.params;
+app.post('/download', async (req: Request, res: Response) => {
+    const { fileName, downloadPath } = req.body;
+
     if (!fileName) {
-        return res.status(400).json({ error: 'File name parameter is required.' });
+        return res.status(400).json({ error: 'Request body must contain a "fileName" property.' });
     }
 
     try {
         console.log(`[API] Initiating download for: ${fileName}`);
-        await p2pClient.downloadFile(fileName);
         
-        const finalPath = path.join(DOWNLOADS_DIR, fileName);
+        // Pass the optional download path to the client method
+        await p2pClient.downloadFile(fileName, downloadPath);
+        
+        // Determine the final path for the response message
+        const finalDir = downloadPath || DOWNLOADS_DIR;
+        const finalPath = path.join(finalDir, fileName);
+
         res.status(200).json({ 
             message: `File "${fileName}" downloaded successfully and is now being seeded.`,
             location: `Saved on server at: ${finalPath}`
