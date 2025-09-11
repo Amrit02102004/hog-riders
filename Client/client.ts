@@ -51,6 +51,7 @@ class Client {
     private fileMap: Map<string, string>;
     private fileInfoPromises: Map<string, { resolve: (value: IFileDetails) => void, reject: (reason?: any) => void }>;
     private fileDetailsCache: Map<string, IFileDetails>;
+    private listenersSetup: boolean = false;
 
     constructor(name:string) {
         this.fileMap = new Map();
@@ -60,40 +61,70 @@ class Client {
     }
 
     public async initialize(): Promise<void> {
-        return new Promise((resolve, reject) => {
-            this.trackerSocket = io(this.trackerURL);
+        this.trackerSocket = io(this.trackerURL);
 
-            this.trackerSocket.on('connect', () => {
-                console.log('[Client] Connected to tracker');
-                this.trackerSocket.emit('request_port', (response: { port?: number, error?: string }) => {
-                    if (response.error || !response.port) {
-                        console.error('[Client] Error requesting port:', response.error);
-                        return reject(new Error(response.error || "Tracker did not assign a port."));
-                    }
+        // This handler will run on initial connection and all subsequent reconnections
+        this.trackerSocket.on('connect', () => {
+            console.log('[Client] Connected to tracker. Requesting port and registering...');
+            this.trackerSocket.emit('request_port', (response: { port?: number, error?: string }) => {
+                if (response.error || !response.port) {
+                    console.error('[Client] Error requesting port:', response.error || "Tracker did not assign a port.");
+                    return;
+                }
 
+                if (!this.peerServer) {
                     this.peerPort = response.port;
                     console.log(`[Client] Received port ${this.peerPort} from tracker`);
                     this.peerServer = new PeerServer(this.peerPort);
-
-                    const ipAddress = getLocalIpAddress();
-                    this.trackerSocket.emit("register_peer", { address: ipAddress, port: this.peerPort });
-                });
+                }
+                
+                const ipAddress = getLocalIpAddress();
+                this.trackerSocket.emit("register_peer", { address: ipAddress, port: this.peerPort });
             });
+        });
 
-            this.trackerSocket.on('registered', () => {
-                console.log("🔗 Client registered with tracker.");
-                this.setupListeners();
+        // This handler is for our custom 'registered' event from the server
+        this.trackerSocket.on('registered', () => {
+            console.log(`🔗 Client registered with tracker (ID: ${this.trackerSocket.id}).`);
+
+            if (this.fileMap.size > 0) {
+                console.log(`[Client] Re-announcing ${this.fileMap.size} files after (re)connection.`);
+                for (const filePath of this.fileMap.values()) {
+                    const metadata = this.parseMetadata(filePath);
+                    if (metadata) {
+                        const fileInfo: IFileInfo = { hash: metadata.hash, name: metadata.name, size: metadata.size, chunkCount: metadata.numParts };
+                        const chunks: IFileChunk[] = Array.from({ length: metadata.numParts }, (_, i) => ({ fileHash: metadata.hash, chunkIndex: i }));
+                        this.trackerSocket.emit("announce_chunks", { fileInfo, chunks });
+                         console.log(`[Client] Re-announced: ${metadata.name}`);
+                    }
+                }
+            }
+        });
+
+        // This promise will resolve only on the FIRST successful registration
+        return new Promise((resolve, reject) => {
+            this.trackerSocket.once('registered', () => {
+                if (!this.listenersSetup) {
+                    this.setupListeners();
+                }
+                console.log("✅ P2P Client is ready.");
                 resolve();
             });
 
             this.trackerSocket.on('connect_error', (err) => {
-                console.error('[Client] Connection error:', err.message);
-                reject(new Error(`Could not connect to tracker: ${err.message}`));
+                if (!this.peerServer) {
+                     console.error('[Client] Initial connection error:', err.message);
+                    reject(new Error(`Could not connect to tracker: ${err.message}`));
+                } else {
+                    console.error('[Client] Reconnection error:', err.message);
+                }
             });
         });
     }
 
     private setupListeners(): void {
+        this.listenersSetup = true;
+
         this.trackerSocket.on("filesList", (data: { files: IFileInfo[] }) => {
             console.log("\n--- Files Available on the Network ---");
             if (data.files && data.files.length > 0) {
@@ -153,13 +184,17 @@ class Client {
 
     public async uploadFile(absoluteFilePath: string): Promise<void> {
         const metadata = this.parseMetadata(absoluteFilePath);
-        if (!metadata) return;
-        console.log(`[Client] Uploading file: ${metadata.name}`);
+        if (!metadata) {
+            console.error(`[Uploader] Could not parse metadata for ${absoluteFilePath}. Aborting upload announcement.`);
+            return;
+        }
+        console.log(`[Uploader] Announcing file: ${metadata.name} with hash ${metadata.hash}`);
         this.fileMap.set(metadata.hash, absoluteFilePath);
         this.peerServer.addSeededFile(metadata.hash, absoluteFilePath);
         const fileInfo: IFileInfo = { hash: metadata.hash, name: metadata.name, size: metadata.size, chunkCount: metadata.numParts };
         const chunks: IFileChunk[] = Array.from({ length: metadata.numParts }, (_, i) => ({ fileHash: metadata.hash, chunkIndex: i }));
         this.trackerSocket.emit("announce_chunks", { fileInfo, chunks });
+        console.log(`[Uploader] Announcement for ${metadata.name} sent to tracker.`);
     }
 
     private announceSingleChunk(fileInfo: IFileInfo, chunkIndex: number): void {
@@ -266,8 +301,13 @@ class Client {
             fs.writeFileSync(savePath, finalBuffer.slice(0, fileInfo.size));
             console.log(`✅ File saved successfully to ${savePath}`);
 
-            console.log(`[Seeder] Now seeding the newly downloaded file: ${fileName}`);
-            await this.uploadFile(savePath);
+            console.log(`[Seeder] Now attempting to seed the newly downloaded file: ${fileName}`);
+            try {
+                await this.uploadFile(savePath);
+                console.log(`[Seeder] Successfully announced and started seeding: ${fileName}`);
+            } catch (e) {
+                console.error(`[Seeder] FAILED to start seeding the new file:`, e);
+            }
 
         } catch (error) {
             console.error(`❌ Download failed: ${(error as Error).message}`);
