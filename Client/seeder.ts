@@ -23,6 +23,8 @@ class Seeder {
         this.trackerSocket = io(trackerURL);
         this.fileMap = new Map();
 
+
+
         this.connectionPromise = new Promise<void>((resolve, reject) => {
             this.trackerSocket.on("connect", () => {
                 this.isConnected = true;

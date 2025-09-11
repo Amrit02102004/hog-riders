@@ -6,20 +6,18 @@ import * as path from 'path';
 const rl = readline.createInterface({ input, output });
 
 async function main() {
-    const portStr = await rl.question("Enter a port for this peer to listen on (e.g., 4001, 4002): ");
-    const peerPort = parseInt(portStr);
-    if (isNaN(peerPort)) {
-        console.log("Invalid port. Exiting.");
-        process.exit(1);
-    }
+    console.log("Initializing client and requesting port from tracker...");
+    const client = new Client();
+    await client.initialize();
 
-    const client = new Client(peerPort);
-    await client.ensureConnected();
+    // Note: ensureConnected is no longer needed as initialize handles connection and registration
     console.log("✅ Client is ready.");
+
+    const testFilePath = path.join(process.cwd(), 'TestFiles', 'test.txt');
 
     while (true) {
         console.log("\n--- Hog Riders P2P Menu ---");
-        console.log("1. Seed file (upload)");
+        console.log("1. Seed a file (upload)");
         console.log("2. List all files on the network");
         console.log("3. Download a file");
         console.log("4. Exit");
@@ -28,10 +26,10 @@ async function main() {
 
         switch (choice) {
             case '1':
-                const filePath = await rl.question("Enter the file name to seed : ");
-                console.log(`Seeding file from path: ${filePath}`);
-                await client.uploadFile(filePath);
-                console.log(`\n✅ File "${path.basename(filePath)}" announced to the tracker.`);
+                const fileUploadName:string = await rl.question("Enter the file name to seed: ");
+                console.log(`Seeding file from path: ${fileUploadName}`);
+                await client.uploadFile(fileUploadName);
+                console.log(`\n✅ File "${path.basename(fileUploadName)}" announced to the tracker.`);
                 break;
 
             case '2':

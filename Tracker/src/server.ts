@@ -19,6 +19,12 @@ class TrackerServer {
     private peerManager: InMemoryPeerManager;
     private fileTracker: InMemoryFileTracker;
     private port: number;
+    // --- Port Management ---
+    private peerPortPool: Set<number>;
+    private nextPeerPort: number;
+    private readonly PEER_PORT_RANGE_START = 4001;
+    private readonly PEER_PORT_RANGE_END = 4999;
+    // ---------------------
 
     constructor() {
         this.app = express();
@@ -34,6 +40,11 @@ class TrackerServer {
         this.port = parseInt(process.env.PORT || '3000');
         this.peerManager = new InMemoryPeerManager();
         this.fileTracker = new InMemoryFileTracker();
+
+        // --- Initialize Port Pool ---
+        this.peerPortPool = new Set();
+        this.nextPeerPort = this.PEER_PORT_RANGE_START;
+        // --------------------------
 
         this.setupMiddleware();
         this.setupRoutes();
@@ -75,7 +86,28 @@ class TrackerServer {
         });
     }
 
+    private getAvailablePort(): number | null {
+        let attempts = 0;
+        const maxAttempts = this.PEER_PORT_RANGE_END - this.PEER_PORT_RANGE_START + 1;
 
+        while (attempts < maxAttempts) {
+            const port = this.nextPeerPort;
+            this.nextPeerPort++;
+            if (this.nextPeerPort > this.PEER_PORT_RANGE_END) {
+                this.nextPeerPort = this.PEER_PORT_RANGE_START;
+            }
+            if (!this.peerPortPool.has(port)) {
+                this.peerPortPool.add(port);
+                return port;
+            }
+            attempts++;
+        }
+        return null; // No available ports
+    }
+
+    private releasePort(port: number): void {
+        this.peerPortPool.delete(port);
+    }
 
     private async broadcastPeerList(): Promise<void> {
         try {
@@ -91,11 +123,46 @@ class TrackerServer {
         this.io.on('connection', (socket) => {
             logger.info(`🔗 Peer connected: ${socket.id}`);
 
+            let assignedPort: number | null = null;
+
+            socket.on('request_port', (callback) => {
+                assignedPort = this.getAvailablePort();
+                if (assignedPort) {
+                    logger.info(`Assigning port ${assignedPort} to peer ${socket.id}`);
+                    callback({ port: assignedPort });
+                } else {
+                    logger.error(`No available ports for peer ${socket.id}`);
+                    callback({ error: 'No available ports on the tracker.' });
+                }
+            });
+
+            socket.on('register_peer', async (data) => {
+                try {
+                    if (data.port !== assignedPort) {
+                        return socket.emit('error', { message: 'Registered port does not match assigned port.' });
+                    }
+
+                    const { error, value } = validatePeerRegistration(data);
+                    if (error) {
+                        return socket.emit('error', { message: error.details[0].message });
+                    }
+
+                    const peer: IPeer = { id: socket.id, ...value, lastSeen: new Date(), connected: true };
+
+                    await this.peerManager.registerPeer(peer);
+                    socket.emit('registered', { peerId: socket.id });
+                    logger.info(`✅ Peer registered: ${socket.id} at ${peer.address}:${peer.port}`);
+                    await this.broadcastPeerList();
+                } catch (error) {
+                    logger.error('Error registering peer:', error);
+                    socket.emit('error', { message: 'Failed to register peer' });
+                }
+            });
+
             socket.on('file_list', async () => {
                 try {
                     const files = await this.fileTracker.getAllFiles();
                     socket.emit('filesList', { files });
-
                     logger.info(`✅ Sent file list (${files.length} files) to peer ${socket.id}`);
                 } catch (error) {
                     logger.error(`Error fetching file list for peer ${socket.id}:`, error);
@@ -157,32 +224,12 @@ class TrackerServer {
                 }
             });
 
-            socket.on('register_peer', async (data) => {
-                try {
-                    const { error, value } = validatePeerRegistration(data);
-                    if (error) {
-                        return socket.emit('error', { message: error.details[0].message });
-                    }
-
-                    const peer: IPeer = {
-                        id: socket.id,
-                        ...value,
-                        lastSeen: new Date(),
-                        connected: true
-                    };
-
-                    await this.peerManager.registerPeer(peer);
-                    socket.emit('registered', { peerId: socket.id });
-                    logger.info(`✅ Peer registered: ${socket.id} at ${peer.address}:${peer.port}`);
-                    await this.broadcastPeerList();
-                } catch (error) {
-                    logger.error('Error registering peer:', error);
-                    socket.emit('error', { message: 'Failed to register peer' });
-                }
-            });
-
             socket.on('disconnect', async () => {
                 try {
+                    if (assignedPort) {
+                        this.releasePort(assignedPort);
+                        logger.info(`Released port ${assignedPort} from peer ${socket.id}`);
+                    }
                     await this.fileTracker.removePeerChunks(socket.id);
                     await this.peerManager.unregisterPeer(socket.id);
                     logger.info(`🔌 Peer disconnected: ${socket.id}`);
