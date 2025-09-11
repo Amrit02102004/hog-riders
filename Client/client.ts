@@ -46,17 +46,17 @@ class Client {
     //     await this.leecher.requestFileInfo(fileHash);
     // }
 
-    public async requestFileInfoByHash(fileHash: string): Promise<void> {
-        await this.leecher.requestFileInfo({ fileHash });
+    public async requestFileInfo(fileName: string): Promise<void> {
+        await this.leecher.requestFileInfo(fileName);
     }
+    //
+    // public async requestFileInfoByName(fileName: string): Promise<void> {
+    //     await this.leecher.requestFileInfo({ fileName });
+    // }
 
-    public async requestFileInfoByName(fileName: string): Promise<void> {
-        await this.leecher.requestFileInfo({ fileName });
-    }
-
-    public async requestFileInfoViaListLookup(fileName: string): Promise<void> {
-        await this.leecher.requestFileInfoViaListLookup(fileName);
-    }
+    // public async requestFileInfoViaListLookup(fileName: string): Promise<void> {
+    //     await this.leecher.requestFileInfoViaListLookup(fileName);
+    // }
 
 
 }
