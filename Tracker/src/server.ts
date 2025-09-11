@@ -175,6 +175,9 @@ class TrackerServer {
                 }
             });
 
+// In Tracker/src/server.ts
+// Find the 'announce_chunks' handler and replace it with this:
+
             socket.on('announce_chunks', async (data: { fileInfo: IFileInfo, chunks: IFileChunk[] }) => {
                 try {
                     const { fileInfo, chunks } = data;
@@ -184,7 +187,17 @@ class TrackerServer {
 
                     await this.fileTracker.announceChunks(socket.id, fileInfo, chunks);
                     logger.info(`📢 Peer ${socket.id} announced ${chunks.length} chunks for file ${fileInfo.name} (${fileInfo.hash})`);
-                    socket.broadcast.emit('new_content_available', { fileHash: fileInfo.hash });
+
+                    const peer = await this.peerManager.getPeer(socket.id);
+                    if (peer) {
+                        for (const chunk of chunks) {
+                            socket.broadcast.emit('chunk_ownership_update', {
+                                fileHash: chunk.fileHash,
+                                chunkIndex: chunk.chunkIndex,
+                                peer: peer
+                            });
+                        }
+                    }
                 } catch (error) {
                     logger.error(`Error announcing chunks for peer ${socket.id}:`, error);
                     socket.emit('error', { message: 'Failed to announce chunks' });

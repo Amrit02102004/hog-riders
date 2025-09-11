@@ -10,7 +10,6 @@ async function main() {
     const client = new Client();
     await client.initialize();
 
-    // Note: ensureConnected is no longer needed as initialize handles connection and registration
     console.log("✅ Client is ready.");
 
     const testFilePath = path.join(process.cwd(), 'TestFiles', 'test.txt');

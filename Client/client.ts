@@ -21,15 +21,14 @@ class Client {
     private peerServer!: PeerServer;
     private peerPort!: number;
 
-    // Seeder properties
     private fileMap: Map<string, string>; // Maps fileHash to its absoluteFilePath
-
-    // Leecher properties
     private fileInfoPromises: Map<string, { resolve: (value: IFileDetails) => void, reject: (reason?: any) => void }>;
+    private fileDetailsCache: Map<string, IFileDetails>; // Cache for live updates
 
     constructor() {
         this.fileMap = new Map();
         this.fileInfoPromises = new Map();
+        this.fileDetailsCache = new Map();
     }
 
     public async initialize(): Promise<void> {
@@ -45,7 +44,6 @@ class Client {
                     this.peerPort = response.port;
                     this.peerServer = new PeerServer(this.peerPort);
 
-                    // Now register with the assigned port
                     this.trackerSocket.emit("register_peer", { address: '127.0.0.1', port: this.peerPort });
                 });
             });
@@ -76,19 +74,38 @@ class Client {
         });
 
         this.trackerSocket.on("file_info_response", (data: IFileDetails) => {
-            if (!data || !data.fileInfo || !this.fileInfoPromises.has(data.fileInfo.name)) {
-                return;
+            if (!data || !data.fileInfo) return;
+
+            // Add to cache for live updates
+            this.fileDetailsCache.set(data.fileInfo.hash, data);
+
+            if (this.fileInfoPromises.has(data.fileInfo.name)) {
+                this.fileInfoPromises.get(data.fileInfo.name)?.resolve(data);
+                this.fileInfoPromises.delete(data.fileInfo.name);
             }
-            this.fileInfoPromises.get(data.fileInfo.name)?.resolve(data);
-            this.fileInfoPromises.delete(data.fileInfo.name);
         });
+
+        // --- NEW: Listener for live chunk updates ---
+        this.trackerSocket.on('chunk_ownership_update', (data: { fileHash: string, chunkIndex: number, peer: IPeer }) => {
+            const { fileHash, chunkIndex, peer } = data;
+
+            const details = this.fileDetailsCache.get(fileHash);
+            if (details) {
+                const ownership = details.chunkOwnership;
+                const peerExists = ownership[chunkIndex]?.some(p => p.id === peer.id);
+
+                if (ownership[chunkIndex] && !peerExists) {
+                    ownership[chunkIndex].push(peer);
+                    console.log(`\n[Live Update] Peer ${peer.id.substring(0,5)}... now has chunk ${chunkIndex} of file ${details.fileInfo.name}`);
+                }
+            }
+        });
+        // -----------------------------------------
 
         this.trackerSocket.on("error", (err) => {
             console.error("❌ An error occurred with the tracker connection:", err.message);
         });
     }
-
-    // --- Seeder Logic ---
 
     public parseMetadata(absoluteFilePath: string): FileMetadata | null {
         try {
@@ -113,10 +130,7 @@ class Client {
 
     public async uploadFile(absoluteFilePath: string): Promise<void> {
         const metadata = this.parseMetadata(absoluteFilePath);
-        if (!metadata) {
-            console.error("Failed to parse metadata. Upload aborted.");
-            return;
-        }
+        if (!metadata) return;
 
         this.fileMap.set(metadata.hash, absoluteFilePath);
         this.peerServer.addSeededFile(metadata.hash, absoluteFilePath);
@@ -127,7 +141,6 @@ class Client {
             size: metadata.size,
             chunkCount: metadata.numParts,
         };
-
         const chunks: IFileChunk[] = Array.from({ length: metadata.numParts }, (_, i) => ({
             fileHash: metadata.hash,
             chunkIndex: i,
@@ -136,13 +149,21 @@ class Client {
         this.trackerSocket.emit("announce_chunks", { fileInfo, chunks });
     }
 
-    // --- Leecher Logic ---
+    // --- NEW: Method to announce a single chunk ---
+    private announceSingleChunk(fileInfo: IFileInfo, chunkIndex: number): void {
+        const chunk: IFileChunk = {
+            fileHash: fileInfo.hash,
+            chunkIndex: chunkIndex,
+        };
+        this.trackerSocket.emit("announce_chunks", { fileInfo, chunks: [chunk] });
+    }
+    // ------------------------------------------
 
     public async requestFilesList(): Promise<void> {
         this.trackerSocket.emit("file_list");
     }
 
-    public async requestFileInfo(fileName: string): Promise<IFileDetails> {
+    public requestFileInfo(fileName: string): Promise<IFileDetails> {
         return new Promise((resolve, reject) => {
             this.fileInfoPromises.set(fileName, { resolve, reject });
             this.trackerSocket.emit("request_file_info", fileName);
@@ -151,7 +172,7 @@ class Client {
                     reject(new Error(`Request for file info "${fileName}" timed out.`));
                     this.fileInfoPromises.delete(fileName);
                 }
-            }, 10000); // 10 second timeout
+            }, 10000);
         });
     }
 
@@ -180,6 +201,8 @@ class Client {
                         .then(chunkData => {
                             downloadedChunks[i] = chunkData;
                             console.log(`[Downloader] Successfully downloaded chunk ${i}`);
+                            // --- Announce the newly acquired chunk to the tracker ---
+                            this.announceSingleChunk(fileInfo, i);
                         })
                         .catch(err => {
                             console.error(`[Downloader] Error downloading chunk ${i}: ${err.message}`);
@@ -198,9 +221,7 @@ class Client {
             const finalBuffer = Buffer.concat(downloadedChunks as Buffer[]);
 
             const downloadsDir = path.join(process.cwd(), 'Downloads');
-            if (!fs.existsSync(downloadsDir)) {
-                fs.mkdirSync(downloadsDir);
-            }
+            if (!fs.existsSync(downloadsDir)) fs.mkdirSync(downloadsDir);
 
             const savePath = path.join(downloadsDir, fileName);
             fs.writeFileSync(savePath, finalBuffer.slice(0, fileInfo.size));
