@@ -198,6 +198,7 @@ class TrackerServer {
                     if (!fileInfo || !chunks || chunks.length === 0) {
                         return socket.emit('error', { message: 'Invalid chunk announcement data' });
                     }
+                    logger.info(`📢 [Tracker] Peer ${socket.id} announced ${chunks.length} chunks for file ${fileInfo.name}`);
 
                     await this.fileTracker.announceChunks(socket.id, fileInfo, chunks);
                     logger.info(`📢 Peer ${socket.id} announced ${chunks.length} chunks for file ${fileInfo.name} (${fileInfo.hash})`);
@@ -220,6 +221,7 @@ class TrackerServer {
 
             socket.on("request_file_info", async (fileName: string) => {
                 try {
+                    logger.info(`[Tracker] Received request for file info: ${fileName}`);
                     if (!fileName) {
                         return socket.emit('error', { message: 'Provide fileHash or fileName' });
                     }
@@ -230,12 +232,14 @@ class TrackerServer {
                         return socket.emit('error', { message: 'File name not found' });
                     }
                     const fileHash: string = fileByName.hash;
+                    logger.info(`[Tracker] Found file hash: ${fileHash}`);
 
                     const result = await this.fileTracker.getFileInfo(fileHash, this.peerManager);
 
                     if (!result) {
                         return socket.emit('error', { message: 'File not found' });
                     }
+                    logger.info(`[Tracker] Sending file info for ${fileName} to peer ${socket.id}`);
 
                     socket.emit('file_info_response', result);
                 } catch (error) {

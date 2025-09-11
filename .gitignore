@@ -143,3 +143,4 @@ Tracker/*.js
 testFiles/
 Web_Server/Downloads
 Client/ClientDownloads
+Client/Downloads/large_text_file.txt

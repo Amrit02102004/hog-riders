@@ -64,12 +64,15 @@ class Client {
             this.trackerSocket = io(this.trackerURL);
 
             this.trackerSocket.on('connect', () => {
+                console.log('[Client] Connected to tracker');
                 this.trackerSocket.emit('request_port', (response: { port?: number, error?: string }) => {
                     if (response.error || !response.port) {
+                        console.error('[Client] Error requesting port:', response.error);
                         return reject(new Error(response.error || "Tracker did not assign a port."));
                     }
 
                     this.peerPort = response.port;
+                    console.log(`[Client] Received port ${this.peerPort} from tracker`);
                     this.peerServer = new PeerServer(this.peerPort);
 
                     const ipAddress = getLocalIpAddress();
@@ -84,6 +87,7 @@ class Client {
             });
 
             this.trackerSocket.on('connect_error', (err) => {
+                console.error('[Client] Connection error:', err.message);
                 reject(new Error(`Could not connect to tracker: ${err.message}`));
             });
         });
@@ -103,7 +107,11 @@ class Client {
         });
 
         this.trackerSocket.on("file_info_response", (data: IFileDetails) => {
-            if (!data || !data.fileInfo) return;
+            if (!data || !data.fileInfo) {
+                console.error('[Client] Invalid file info response received');
+                return;
+            }
+            console.log(`[Client] Received file info for ${data.fileInfo.name}`);
             this.fileDetailsCache.set(data.fileInfo.hash, data);
             if (this.fileInfoPromises.has(data.fileInfo.name)) {
                 this.fileInfoPromises.get(data.fileInfo.name)?.resolve(data);
@@ -146,6 +154,7 @@ class Client {
     public async uploadFile(absoluteFilePath: string): Promise<void> {
         const metadata = this.parseMetadata(absoluteFilePath);
         if (!metadata) return;
+        console.log(`[Client] Uploading file: ${metadata.name}`);
         this.fileMap.set(metadata.hash, absoluteFilePath);
         this.peerServer.addSeededFile(metadata.hash, absoluteFilePath);
         const fileInfo: IFileInfo = { hash: metadata.hash, name: metadata.name, size: metadata.size, chunkCount: metadata.numParts };
@@ -154,6 +163,7 @@ class Client {
     }
 
     private announceSingleChunk(fileInfo: IFileInfo, chunkIndex: number): void {
+        console.log(`[Client] Announcing chunk ${chunkIndex} for file ${fileInfo.name}`);
         const chunk: IFileChunk = { fileHash: fileInfo.hash, chunkIndex: chunkIndex };
         this.trackerSocket.emit("announce_chunks", { fileInfo, chunks: [chunk] });
     }
@@ -173,6 +183,7 @@ class Client {
 
     public requestFileInfo(fileName: string): Promise<IFileDetails> {
         return new Promise((resolve, reject) => {
+            console.log(`[Client] Requesting file info for ${fileName}`);
             this.fileInfoPromises.set(fileName, { resolve, reject });
             this.trackerSocket.emit("request_file_info", fileName);
             setTimeout(() => {
@@ -191,13 +202,19 @@ class Client {
             const { fileInfo, chunkOwnership } = fileDetails;
 
             console.log(`[Downloader] Starting download for ${fileName}. Total chunks: ${fileInfo.chunkCount}`);
+            console.log('[Downloader] Chunk ownership:', chunkOwnership);
+
 
             const downloadedChunks: (Buffer | null)[] = new Array(fileInfo.chunkCount).fill(null);
             const downloadPromises: Promise<void>[] = [];
 
             const tryDownloadChunk = async (chunkIndex: number, availablePeers: IPeer[]): Promise<void> => {
-                if (availablePeers.length === 0) throw new Error(`All peers failed to provide chunk ${chunkIndex}.`);
+                if (availablePeers.length === 0) {
+                    console.error(`[Downloader] No more peers to try for chunk ${chunkIndex}`);
+                    throw new Error(`All peers failed to provide chunk ${chunkIndex}.`);
+                }
                 const peerToTry = availablePeers[0];
+                console.log(`[Downloader] Attempting to download chunk ${chunkIndex} from peer ${peerToTry.id}`);
                 try {
                     const chunkData = await downloadChunkFromPeer(peerToTry, fileInfo.hash, chunkIndex);
                     await sleep(500);
@@ -212,7 +229,10 @@ class Client {
 
             for (let i = 0; i < fileInfo.chunkCount; i++) {
                 const peersForChunk = chunkOwnership[i];
-                if (!peersForChunk || peersForChunk.length === 0) throw new Error(`No peers found for chunk ${i}. Download aborted.`);
+                if (!peersForChunk || peersForChunk.length === 0) {
+                    console.error(`[Downloader] No peers found for chunk ${i}. Download aborted.`);
+                    throw new Error(`No peers found for chunk ${i}. Download aborted.`);
+                }
                 const randomizedPeers = shuffleArray([...peersForChunk]);
                 downloadPromises.push(tryDownloadChunk(i, randomizedPeers));
             }
