@@ -66,17 +66,22 @@ app.post('/seed', async (req: Request, res: Response) => {
 
 /**
  * @api {get} /files
- * @description Requests the list of all files available on the network.
- * The client implementation prints this list to the server's console.
+ * @description Requests and returns the list of all files available on the network.
  */
 app.get('/files', async (req: Request, res: Response) => {
     try {
         console.log("\n[API] Requesting file list from tracker...");
-        await p2pClient.requestFilesList();
         
-        res.status(202).json({ 
-            message: "Request sent. The list of available files will be printed in the server's console." 
+        // This now waits for the file list and returns it
+        const files = await p2pClient.requestFilesList();
+        
+        // Send the retrieved list back to the API client with a 200 OK status
+        res.status(200).json({ 
+            message: "Successfully retrieved the list of available files.",
+            count: files.length,
+            files: files 
         });
+
     } catch (error: any) {
         console.error('[API] Error requesting file list:', error);
         res.status(500).json({ error: 'Failed to request the file list.', details: error.message });

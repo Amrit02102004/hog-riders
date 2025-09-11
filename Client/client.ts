@@ -172,8 +172,27 @@ class Client {
         this.trackerSocket.emit("announce_chunks", { fileInfo, chunks: [chunk] });
     }
 
-    public async requestFilesList(): Promise<void> {
-        this.trackerSocket.emit("file_list");
+    public requestFilesList(): Promise<IFileInfo[]> {
+        return new Promise((resolve, reject) => {
+            // Set a timeout to prevent the request from hanging indefinitely
+            const timeout = setTimeout(() => {
+                reject(new Error("Request for file list timed out after 10 seconds."));
+            }, 10000);
+
+            // Use .once() for a one-time listener for this specific request
+            this.trackerSocket.once("filesList", (data: { files: IFileInfo[] }) => {
+                clearTimeout(timeout); // Clear the timeout since we received a response
+                if (data && data.files) {
+                    resolve(data.files);
+                } else {
+                    // Resolve with an empty array if the response is malformed
+                    resolve([]); 
+                }
+            });
+
+            // Emit the event to the tracker to ask for the list
+            this.trackerSocket.emit("file_list");
+        });
     }
 
     public requestFileInfo(fileName: string): Promise<IFileDetails> {
