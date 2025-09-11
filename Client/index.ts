@@ -21,7 +21,7 @@ if (choice === '1') {
 
 }else if (choice === '3') {
     const fileName = await rl.question('Enter the file name to search: ');
-    await client.requestFileInfoViaListLookup(fileName);
+    await client.requestFileInfo(fileName);
 }
 else {
     console.log('Invalid choice.');

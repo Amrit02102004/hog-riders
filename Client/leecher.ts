@@ -22,6 +22,8 @@ class Leecher {
         this.connectionPromise = new Promise<void>((resolve, reject) => {
             this.trackerSocket.on("connect", () => {
                 console.log("✅ Leecher connected to tracker at", trackerURL);
+
+                this.trackerSocket.emit("register_peer")
                 this.isConnected = true;
                 resolve();
             });
@@ -53,7 +55,9 @@ class Leecher {
             });
 
             this.trackerSocket.on("file_info_response", (data) => {
-                console.log("📄 Received file info from tracker:", data);
+                data.chunkOwnership.forEach((peers: any, index: any) => {
+                    console.log(`Chunk ${index} peers:`, peers);
+                });
             });
 
             // Optional: response for hash resolution if server implemented.
@@ -88,41 +92,18 @@ class Leecher {
         this.trackerSocket.emit("file_list");
     }
 
-    // Updated: now accepts either fileHash or fileName.
-    public async requestFileInfo(opts: { fileHash?: string; fileName?: string }): Promise<void> {
+    // accepts only fileName.
+    public async requestFileInfo(fileName?: string ): Promise<void> {
         console.log("test")
         await this.waitForConnection();
-        if (!opts.fileHash && !opts.fileName) {
-            console.error("❌ requestFileInfo requires fileHash or fileName.");
-            return;
+        try{
+            this.trackerSocket.emit("request_file_info", fileName );
         }
-        this.trackerSocket.emit("request_file_info", { fileHash: opts.fileHash, fileName: opts.fileName });
+        catch(err) {
+            console.error("Error requesting file info:", err);
+        }
     }
 
-    public async requestFileInfoByName(fileName: string): Promise<void> {
-        await this.waitForConnection();
-        this.trackerSocket.emit("request_file_info", { fileName });
-        console.log(`🔍 Requested file info by name: ${fileName}`);
-    }
-
-    public async requestFileInfoViaListLookup(fileName: string): Promise<void> {
-        await this.waitForConnection();
-        return new Promise<void>((resolve) => {
-            const handler = (data: { files: FileListItem[] }) => {
-                const match = data.files.find(f => f.name === fileName);
-                if (!match) {
-                    console.warn(`⚠️ File '${fileName}' not found in list.`);
-                } else {
-                    console.log(`✅ Found hash ${match.hash} for '${fileName}', requesting info...`);
-                    this.requestFileInfo({ fileHash: match.hash });
-                }
-                this.trackerSocket.off("filesList", handler);
-                resolve();
-            };
-            this.trackerSocket.on("filesList", handler);
-            this.trackerSocket.emit("file_list");
-        });
-    }
 
     public async computeSHA256(file: File): Promise<string> {
         const buf = await file.arrayBuffer();

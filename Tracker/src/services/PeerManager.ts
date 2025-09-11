@@ -42,4 +42,8 @@ export class InMemoryPeerManager {
         }
         return removed;
     }
+
+    async getPeer(peerId: string): Promise<IPeer | undefined> {
+        return this.peers.get(peerId);
+    }
 }

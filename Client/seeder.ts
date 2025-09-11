@@ -24,6 +24,7 @@ class Seeder {
             this.trackerSocket.on("connect", () => {
                 console.log("✅ Seeder connected to tracker at", trackerURL);
                 this.isConnected = true;
+                this.trackerSocket.emit("register_peer")
                 resolve();
             });
 

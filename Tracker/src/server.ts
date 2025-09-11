@@ -105,54 +105,60 @@ class TrackerServer {
                 }
             });
 
-            socket.on("request_file_info", async (data: { fileHash?: string; fileName?: string }) => {
-                try {
-                    let { fileHash, fileName } = data || {};
-                    console.log("🔍 Received request_file_info:", { fileHash, fileName }); // Add this
-            
-                    if (!fileHash && !fileName) {
-                        return socket.emit('error', { message: 'Provide fileHash or fileName' });
-                    }
-            
-                    if (!fileHash && fileName) {
-                        const fileByName = await this.fileTracker.findFileByName(fileName);
-                        if (!fileByName) {
-                            return socket.emit('error', { message: 'File name not found' });
-                        }
-                        fileHash = fileByName.hash;
-                    }
-            
-                    console.log("🔍 Looking for fileHash:", fileHash); // Add this
-                    const fileInfo = await this.fileTracker.getFileInfo(fileHash!, this.peerManager);
-                    console.log("📄 FileInfo result:", fileInfo); // Add this
-                    
-                    if (!fileInfo) {
-                        console.log("❌ FileInfo is null/undefined"); // Add this
-                        return socket.emit('error', { message: 'File not found' });
-                    }
-            
-                    console.log("✅ Sending file_info_response"); // Add this
-                    socket.emit('file_info_response', { fileInfo });
-                } catch (error) {
-                    console.error("❌ Error in request_file_info handler:", error); // Add this
-                    logger.error(`Error fetching file info for peer ${socket.id}:`, error);
-                    socket.emit('error', { message: 'Failed to retrieve file info' });
-                }
-            });
-
-
+// Add these debug handlers to your server:
 
             socket.on('announce_chunks', async (data: { fileInfo: IFileInfo, chunks: IFileChunk[] }) => {
                 try {
+                    console.log(`📢 DEBUG: announce_chunks received from ${socket.id}`);
+                    console.log(`📢 DEBUG: data:`, JSON.stringify(data, null, 2));
+
                     const { fileInfo, chunks } = data;
                     if (!fileInfo || !chunks || chunks.length === 0) {
+                        console.log(`❌ DEBUG: Invalid data - fileInfo:`, !!fileInfo, `chunks:`, chunks?.length || 0);
                         return socket.emit('error', { message: 'Invalid chunk announcement data' });
                     }
+
                     await this.fileTracker.announceChunks(socket.id, fileInfo, chunks);
+                    logger.info(`📢 Peer ${socket.id} announced ${chunks.length} chunks for file ${fileInfo.name} (${fileInfo.hash})`);
                     socket.broadcast.emit('new_content_available', { fileHash: fileInfo.hash });
                 } catch (error) {
+                    console.error(`❌ DEBUG: Error in announce_chunks:`, error);
                     logger.error(`Error announcing chunks for peer ${socket.id}:`, error);
                     socket.emit('error', { message: 'Failed to announce chunks' });
+                }
+            });
+
+            socket.on("request_file_info", async (fileName: string) => {
+                try {
+                    console.log(`🔍 DEBUG: request_file_info received for fileName: ${fileName} from ${socket.id}`);
+
+                    if (!fileName) {
+                        return socket.emit('error', { message: 'Provide fileHash or fileName' });
+                    }
+
+                    const fileByName = await this.fileTracker.findFileByName(fileName);
+                    console.log(`🔍 DEBUG: findFileByName result:`, fileByName);
+
+                    if (!fileByName) {
+                        return socket.emit('error', { message: 'File name not found' });
+                    }
+                    const fileHash: string = fileByName.hash;
+
+                    console.log("🔍 Looking for fileHash:", fileHash);
+                    const result = await this.fileTracker.getFileInfo(fileHash, this.peerManager);
+                    console.log("📄 FileInfo result:", result);
+
+                    if (!result) {
+                        console.log("❌ FileInfo is null/undefined");
+                        return socket.emit('error', { message: 'File not found' });
+                    }
+
+                    console.log("✅ Sending file_info_response with complete result");
+                    socket.emit('file_info_response', result);
+                } catch (error) {
+                    console.error("❌ Error in request_file_info handler:", error);
+                    logger.error(`Error fetching file info for peer ${socket.id}:`, error);
+                    socket.emit('error', { message: 'Failed to retrieve file info' });
                 }
             });
 
