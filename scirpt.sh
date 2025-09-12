@@ -5,7 +5,8 @@ set -e  # exit if any command fails
 echo "Building and starting Web_Server..."
 cd Web_Server
 npm run build
-npm run start &   # run in background so frontend can also run
+npm run start &  # run in background so frontend can also run
+sleep 5
 cd ..
 
 # Navigate to Frontend

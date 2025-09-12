@@ -41,7 +41,7 @@ export interface IFileDetails {
 }
 
 class Client {
-    private trackerURL: string = 'http://10.104.187.69:3000';
+    private trackerURL: string = 'http://10.191.104.69:3000';
     private trackerSocket!: Socket;
     private peerServer!: PeerServer;
     private peerPort!: number;
@@ -83,7 +83,6 @@ class Client {
             });
         });
 
-        // This handler is for our custom 'registered' event from the server
         this.trackerSocket.on('registered', () => {
             console.log(`🔗 Client registered with tracker (ID: ${this.trackerSocket.id}).`);
 
@@ -230,9 +229,6 @@ class Client {
         });
     }
 
-    // ... (imports and other class methods remain the same)
-
-// Add the onProgress callback to the downloadFile method
     public async downloadFile(fileName: string, customSaveDir?: string, onProgress?: (progress: number) => void): Promise<void> {
         try {
             console.log(`[Downloader] Requesting info for ${fileName}...`);
@@ -309,12 +305,10 @@ class Client {
 
         } catch (error) {
             console.error(`❌ Download failed: ${(error as Error).message}`);
-            // If there's a progress callback, send -1 to indicate failure
             if (onProgress) onProgress(-1);
             throw error;
         }
     }
-// ... (rest of the class)
 
 }
 
