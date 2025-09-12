@@ -1,3 +1,4 @@
+/* amrit02102004/hog-riders/hog-riders-9546d1376f33c069d3f6a19824aa83d0f6cd9331/Frontend/src/App.css */
 :root {
     --primary-color: #5e35b1;
     --primary-hover: #4527a0;
@@ -235,4 +236,16 @@ input:focus {
 }
 .progress-bar.error {
     background-color: var(--error-color);
+}
+
+.log-viewer {
+    font-family: monospace;
+    font-size: 0.8em;
+    color: var(--text-muted);
+    max-height: 150px;
+    overflow-y: auto;
+}
+
+.log-line {
+    padding: 0.2rem 0;
 }

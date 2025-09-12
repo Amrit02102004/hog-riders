@@ -1,3 +1,4 @@
+// amrit02102004/hog-riders/hog-riders-9546d1376f33c069d3f6a19824aa83d0f6cd9331/Web_Server/server.ts
 import express, { Request, Response } from 'express';
 import path from 'path';
 import { promises as fs } from 'fs';
@@ -12,7 +13,7 @@ const httpServer = createServer(app);
 const PORT = process.env.PORT || 3001;
 
 // In-memory store for download progress
-const downloadProgress = new Map<string, number>();
+const downloadProgress = new Map<string, { progress: number, logs: string[] }>();
 
 app.use(express.json());
 app.use(cors());
@@ -74,11 +75,15 @@ app.post('/download', async (req: Request, res: Response) => {
 
     try {
         console.log(`[API] Initiating download for: ${fileName}`);
-        downloadProgress.set(fileName, 0); // Set initial progress
+        downloadProgress.set(fileName, { progress: 0, logs: [] }); // Set initial progress
 
         // Run download in the background, don't await it
-        p2pClient.downloadFile(fileName, downloadPath, (progress) => {
-            downloadProgress.set(fileName, progress);
+        p2pClient.downloadFile(fileName, downloadPath, (data) => {
+            const current = downloadProgress.get(fileName) || { progress: 0, logs: [] };
+            downloadProgress.set(fileName, {
+                progress: data.progress,
+                logs: [...current.logs, data.log]
+            });
         }).then(() => {
             console.log(`[API] Download complete for ${fileName}`);
             // Optionally remove from progress map after some delay

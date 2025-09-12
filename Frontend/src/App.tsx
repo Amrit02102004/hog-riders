@@ -1,7 +1,9 @@
+// amrit02102004/hog-riders/hog-riders-9546d1376f33c069d3f6a19824aa83d0f6cd9331/Frontend/src/App.tsx
 import React, { useState, useCallback, useEffect } from 'react';
 import Seed from './components/Seed';
 import FileList from './components/FileList';
 import DownloadsList from './components/DownloadsList'; // Assuming you created this from the previous step
+import LogViewer from './components/LogViewer';
 import './App.css';
 
 const API_URL = 'http://localhost:3001';
@@ -16,6 +18,7 @@ interface FileInfo {
 interface Download {
     fileName: string;
     progress: number;
+    logs: string[];
 }
 
 const App: React.FC = () => {
@@ -51,9 +54,10 @@ const App: React.FC = () => {
                 const response = await fetch(`${API_URL}/download-status`);
                 if (!response.ok) return;
                 const progressData = await response.json();
-                const updatedDownloads = Object.entries(progressData).map(([fileName, progress]) => ({
+                const updatedDownloads = Object.entries(progressData).map(([fileName, data]) => ({
                     fileName,
-                    progress: progress as number
+                    progress: (data as any).progress as number,
+                    logs: (data as any).logs as string[],
                 }));
                 setDownloads(updatedDownloads);
             } catch (error) {
@@ -119,6 +123,7 @@ const App: React.FC = () => {
                     <div className="column">
                         <Seed handleSeed={handleSeed} isLoading={isLoading} />
                         <DownloadsList downloads={downloads} />
+                        <LogViewer downloads={downloads} />
                     </div>
                     <div className="column">
                         {/* Ensure fetchFiles is passed as a prop here */}

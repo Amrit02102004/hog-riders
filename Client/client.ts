@@ -41,7 +41,7 @@ export interface IFileDetails {
 }
 
 class Client {
-    private trackerURL: string = 'http://10.191.104.69:3000';
+    private trackerURL: string = 'http://10.191.104.55:3000';
     private trackerSocket!: Socket;
     private peerServer!: PeerServer;
     private peerPort!: number;
@@ -63,7 +63,6 @@ class Client {
     public async initialize(): Promise<void> {
         this.trackerSocket = io(this.trackerURL);
 
-        // This handler will run on initial connection and all subsequent reconnections
         this.trackerSocket.on('connect', () => {
             console.log('[Client] Connected to tracker. Requesting port and registering...');
             this.trackerSocket.emit('request_port', (response: { port?: number, error?: string }) => {
@@ -77,7 +76,7 @@ class Client {
                     console.log(`[Client] Received port ${this.peerPort} from tracker`);
                     this.peerServer = new PeerServer(this.peerPort);
                 }
-                
+
                 const ipAddress = getLocalIpAddress();
                 this.trackerSocket.emit("register_peer", { address: ipAddress, port: this.peerPort });
             });
@@ -94,13 +93,12 @@ class Client {
                         const fileInfo: IFileInfo = { hash: metadata.hash, name: metadata.name, size: metadata.size, chunkCount: metadata.numParts };
                         const chunks: IFileChunk[] = Array.from({ length: metadata.numParts }, (_, i) => ({ fileHash: metadata.hash, chunkIndex: i }));
                         this.trackerSocket.emit("announce_chunks", { fileInfo, chunks });
-                         console.log(`[Client] Re-announced: ${metadata.name}`);
+                        console.log(`[Client] Re-announced: ${metadata.name}`);
                     }
                 }
             }
         });
 
-        // This promise will resolve only on the FIRST successful registration
         return new Promise((resolve, reject) => {
             this.trackerSocket.once('registered', () => {
                 if (!this.listenersSetup) {
@@ -112,7 +110,7 @@ class Client {
 
             this.trackerSocket.on('connect_error', (err) => {
                 if (!this.peerServer) {
-                     console.error('[Client] Initial connection error:', err.message);
+                    console.error('[Client] Initial connection error:', err.message);
                     reject(new Error(`Could not connect to tracker: ${err.message}`));
                 } else {
                     console.error('[Client] Reconnection error:', err.message);
@@ -229,7 +227,7 @@ class Client {
         });
     }
 
-    public async downloadFile(fileName: string, customSaveDir?: string, onProgress?: (progress: number) => void): Promise<void> {
+    public async downloadFile(fileName: string, customSaveDir?: string, onProgress?: (progress: { progress: number, log: string }) => void): Promise<void> {
         try {
             console.log(`[Downloader] Requesting info for ${fileName}...`);
             const fileDetails = await this.requestFileInfo(fileName);
@@ -264,16 +262,15 @@ class Client {
                 const peerToTry = availablePeers[0];
                 try {
                     const chunkData = await downloadChunkFromPeer(peerToTry, fileInfo.hash, chunkIndex);
-                    await sleep(500); // Small delay
+                    await sleep(500);
                     downloadedChunks[chunkIndex] = chunkData;
                     downloadedCount++;
-                    // *** THIS IS THE NEW PART ***
+                    const logMessage = `Peer ${peerToTry.id.substring(0, 5)}... delivered chunk ${chunkIndex}`;
                     if (onProgress) {
                         const progress = Math.round((downloadedCount / fileInfo.chunkCount) * 100);
-                        onProgress(progress);
+                        onProgress({ progress, log: logMessage });
                     }
-                    // **************************
-                    console.log(`[Downloader] Peer ${peerToTry.id.substring(0, 5)}... DELIVERED chunk ${chunkIndex}`);
+                    console.log(`[Downloader] ${logMessage}`);
                     this.announceSingleChunk(fileInfo, chunkIndex);
                 } catch (error) {
                     console.warn(`[Downloader] Peer ${peerToTry.id.substring(0, 5)}... FAILED chunk ${chunkIndex}. Retrying with another peer...`);
@@ -284,7 +281,6 @@ class Client {
             const downloadPromises = Array.from({ length: concurrency }, () => downloadWorker());
             await Promise.all(downloadPromises);
 
-            // ... (rest of the function remains the same)
             const downloadedCountCheck = downloadedChunks.filter(c => c !== null).length;
             if (downloadedCountCheck !== fileInfo.chunkCount) {
                 throw new Error(`Failed to download all chunks. Got ${downloadedCountCheck}/${fileInfo.chunkCount}.`);
@@ -305,7 +301,7 @@ class Client {
 
         } catch (error) {
             console.error(`❌ Download failed: ${(error as Error).message}`);
-            if (onProgress) onProgress(-1);
+            if (onProgress) onProgress({ progress: -1, log: (error as Error).message });
             throw error;
         }
     }
