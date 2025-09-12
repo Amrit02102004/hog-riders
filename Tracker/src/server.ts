@@ -1,6 +1,5 @@
 import * as dotenv from 'dotenv';
-dotenv.config(); // Load .env file
-
+dotenv.config();
 import express from 'express';
 import { createServer } from 'http';
 import { Server as SocketServer } from 'socket.io';
@@ -24,7 +23,6 @@ class TrackerServer {
     private peerManager: IPeerManager;
     private fileTracker: InMemoryFileTracker;
     private port: number;
-    // --- Port Management ---
     private peerPortPool: Set<number>;
     private nextPeerPort: number;
     private readonly PEER_PORT_RANGE_START = 4001;
@@ -46,10 +44,8 @@ class TrackerServer {
         this.peerManager = new RedisPeerManager();
         this.fileTracker = new InMemoryFileTracker();
 
-        // --- Initialize Port Pool ---
         this.peerPortPool = new Set();
         this.nextPeerPort = this.PEER_PORT_RANGE_START;
-        // --------------------------
 
         this.setupMiddleware();
         this.setupRoutes();
@@ -121,7 +117,7 @@ class TrackerServer {
             }
             attempts++;
         }
-        return null; // No available ports
+        return null;
     }
 
     private releasePort(port: number): void {
@@ -188,9 +184,6 @@ class TrackerServer {
                     socket.emit('error', { message: 'Failed to retrieve file list' });
                 }
             });
-
-// In Tracker/src/server.ts
-// Find the 'announce_chunks' handler and replace it with this:
 
             socket.on('announce_chunks', async (data: { fileInfo: IFileInfo, chunks: IFileChunk[] }) => {
                 try {

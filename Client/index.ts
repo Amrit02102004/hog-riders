@@ -4,13 +4,11 @@ import { stdin as input, stdout as output } from 'node:process';
 import * as path from 'path';
 import * as fs from 'fs';
 
-// --- Define a default download directory for the CLI ---
 const DOWNLOADS_DIR = path.join(process.cwd(), 'ClientDownloads');
 
 const rl = readline.createInterface({ input, output });
 
 async function main() {
-    // --- Ensure the download directory exists ---
     if (!fs.existsSync(DOWNLOADS_DIR)) {
         console.log(`Creating download directory at: ${DOWNLOADS_DIR}`);
         fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
